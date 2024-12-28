@@ -10,7 +10,9 @@ categories = ["asynchronous"]
 keywords = ["async", "non-blocking", "futures"]
 authors = ["Darius Clark"]
 exclude = [".gitignore"]
-
+description = """
+A small library designed to utilize async executors through an common API while extending features.
+"""
 
 [features]
 default = ["tokio"]

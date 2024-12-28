@@ -48,6 +48,7 @@ impl<T> Default for InnerJoinHandle<T> {
 }
 
 impl<T> JoinHandle<T> {
+    /// Provide a empty [`JoinHandle`] with no associated task.
     pub fn empty() -> Self {
         JoinHandle {
             inner: InnerJoinHandle::Empty,
@@ -56,6 +57,7 @@ impl<T> JoinHandle<T> {
 }
 
 impl<T> JoinHandle<T> {
+    /// Abort the task associated with the handle.
     pub fn abort(&self) {
         match self.inner {
             #[cfg(all(feature = "tokio", not(target_arch = "wasm32")))]
@@ -65,6 +67,10 @@ impl<T> JoinHandle<T> {
         }
     }
 
+    /// Check if the task associated with this `JoinHandle` has finished.
+    ///
+    /// Note that this method can return false even if [`JoinHandle::abort`] has been called on the
+    /// task due to the time it may take for the task to cancel.
     pub fn is_finished(&self) -> bool {
         match self.inner {
             #[cfg(all(feature = "tokio", not(target_arch = "wasm32")))]
@@ -77,11 +83,16 @@ impl<T> JoinHandle<T> {
         }
     }
 
+    /// Replace the current handle with the provided [`JoinHandle`].
     pub unsafe fn replace(&mut self, mut handle: JoinHandle<T>) {
         self.inner = std::mem::take(&mut handle.inner);
     }
 
-    pub unsafe fn replace_mut(&mut self, handle: &mut JoinHandle<T>) {
+    /// Replace the current handle with the provided [`JoinHandle`].
+    ///
+    /// Note that this will replace the handle in-place, leaving the provided handle
+    /// empty.
+    pub unsafe fn replace_in_place(&mut self, handle: &mut JoinHandle<T>) {
         self.inner = std::mem::take(&mut handle.inner);
     }
 }
@@ -154,6 +165,7 @@ impl<T> From<JoinHandle<T>> for AbortableJoinHandle<T> {
 }
 
 impl<T> AbortableJoinHandle<T> {
+    /// Provide a empty [`AbortableJoinHandle`] with no associated task.
     pub fn empty() -> Self {
         Self {
             handle: Arc::new(InnerHandle {
@@ -164,10 +176,12 @@ impl<T> AbortableJoinHandle<T> {
 }
 
 impl<T> AbortableJoinHandle<T> {
+    /// See [`JoinHandle::abort`]
     pub fn abort(&self) {
         self.handle.inner.lock().abort();
     }
 
+    /// See [`JoinHandle::is_finished`]
     pub fn is_finished(&self) -> bool {
         self.handle.inner.lock().is_finished()
     }
@@ -175,7 +189,7 @@ impl<T> AbortableJoinHandle<T> {
     pub unsafe fn replace(&mut self, inner: AbortableJoinHandle<T>) {
         let current_handle = &mut *self.handle.inner.lock();
         let inner_handle = &mut *inner.handle.inner.lock();
-        current_handle.replace_mut(inner_handle);
+        current_handle.replace_in_place(inner_handle);
     }
 }
 
@@ -197,6 +211,7 @@ impl<T> Future for AbortableJoinHandle<T> {
     }
 }
 
+/// A task that accepts messages
 #[derive(Clone)]
 pub struct CommunicationTask<T> {
     _task_handle: AbortableJoinHandle<()>,
@@ -231,7 +246,8 @@ where
     }
 
     /// Abort the task
-    pub fn abort(self) {
+    pub fn abort(mut self) {
+        self._channel_tx.close_channel();
         self._task_handle.abort();
     }
 

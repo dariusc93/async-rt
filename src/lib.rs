@@ -308,6 +308,27 @@ pub trait Executor {
             _channel_tx: tx,
         }
     }
+
+    /// Spawns a new asynchronous task with provided context, that accepts messages to the task using [`channels`](futures::channel::mpsc).
+    /// This function returns an handle that allows sending a message or if there is no reference to the handle at all
+    /// (in other words, all handles are dropped), the task would be aborted.
+    fn spawn_coroutine_with_context<T, F, C, Fut>(
+        &self,
+        context: C,
+        mut f: F,
+    ) -> CommunicationTask<T>
+    where
+        F: FnMut(C, Receiver<T>) -> Fut,
+        Fut: Future<Output = ()> + Send + 'static,
+    {
+        let (tx, rx) = futures::channel::mpsc::channel(1);
+        let fut = f(context, rx);
+        let _task_handle = self.spawn_abortable(fut);
+        CommunicationTask {
+            _task_handle,
+            _channel_tx: tx,
+        }
+    }
 }
 
 #[cfg(test)]

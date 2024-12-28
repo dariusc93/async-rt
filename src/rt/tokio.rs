@@ -68,4 +68,45 @@ mod tests {
         let resp = rx.await.unwrap();
         assert_eq!(resp, "Hello");
     }
+
+    #[tokio::test]
+    async fn task_coroutine_with_context() {
+        use futures::stream::StreamExt;
+        let executor = TokioExecutor;
+
+        #[derive(Default)]
+        struct State {
+            message: String,
+        }
+
+        enum Message {
+            Set(String),
+            Get(futures::channel::oneshot::Sender<String>),
+        }
+
+        let mut task = executor.spawn_coroutine_with_context(
+            State::default(),
+            |mut state, mut rx: Receiver<Message>| async move {
+                while let Some(msg) = rx.next().await {
+                    match msg {
+                        Message::Set(msg) => {
+                            state.message = msg;
+                        }
+                        Message::Get(resp) => {
+                            _ = resp.send(state.message.clone()).unwrap();
+                        }
+                    }
+                }
+            },
+        );
+
+        let msg = Message::Set("Hello".into());
+
+        task.send(msg).await.unwrap();
+        let (tx, rx) = futures::channel::oneshot::channel::<String>();
+        let msg = Message::Get(tx);
+        task.send(msg).await.unwrap();
+        let resp = rx.await.unwrap();
+        assert_eq!(resp, "Hello");
+    }
 }

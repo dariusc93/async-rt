@@ -17,7 +17,7 @@ impl Executor for GlobalExecutor {
         #[cfg(all(feature = "tokio", not(target_arch = "wasm32")))]
         let executor = rt::tokio::TokioExecutor;
         #[cfg(all(feature = "threadpool", not(feature = "tokio"), not(target_arch = "wasm32")))]
-        let executor = rt::threadpool::ThreadpoolExecutor;
+        let executor = rt::threadpool::ThreadPoolExecutor;
         #[cfg(target_arch = "wasm32")]
         let executor = rt::wasm::WasmExecutor;
 

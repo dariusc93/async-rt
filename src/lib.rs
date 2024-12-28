@@ -1,6 +1,5 @@
 pub mod global;
 pub mod rt;
-#[allow(dead_code)]
 pub mod task;
 pub mod tracker;
 

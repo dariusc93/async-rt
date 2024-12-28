@@ -14,6 +14,9 @@ use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll};
 
+#[cfg(all(not(feature = "threadpool"), not(feature = "tokio"), not(target_arch = "wasm32")))]
+compile_error!("At least one runtime (i.e 'tokio', 'threadpool', 'wasm-bindgen-futures') must be enabled");
+
 /// An owned permission to join on a task (await its termination).
 ///
 /// This can be seen as an equivalent to [`std::thread::JoinHandle`] but for [`Future`] tasks rather than a thread.

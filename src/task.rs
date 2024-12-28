@@ -1,16 +1,16 @@
-use std::future::Future;
-use futures::channel::mpsc::Receiver;
 use crate::global::GlobalExecutor;
 use crate::{AbortableJoinHandle, CommunicationTask, Executor, JoinHandle};
+use futures::channel::mpsc::Receiver;
+use std::future::Future;
 
 const EXECUTOR: GlobalExecutor = GlobalExecutor;
-
 
 /// Spawns a new asynchronous task in the background, returning an Future [`JoinHandle`] for it.
 pub fn spawn<F>(future: F) -> JoinHandle<F::Output>
 where
     F: Future + Send + 'static,
-    F::Output: Send + 'static {
+    F::Output: Send + 'static,
+{
     EXECUTOR.spawn(future)
 }
 

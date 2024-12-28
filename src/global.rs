@@ -1,5 +1,5 @@
-use std::future::Future;
 use crate::{rt, Executor, JoinHandle};
+use std::future::Future;
 
 /// Executor that switch between [`TokioExecutor`](rt::tokio::TokioExecutor) and [`WasmExecutor`](rt::wasm::WasmExecutor) at compile time.
 /// If the target is non-wasm32, [`tokio`] would be used, if it is supported.

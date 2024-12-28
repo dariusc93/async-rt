@@ -1,6 +1,6 @@
+pub mod global;
 pub mod rt;
 pub mod task;
-pub mod global;
 pub mod tracker;
 
 use std::fmt::{Debug, Formatter};

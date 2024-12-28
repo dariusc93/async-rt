@@ -1,13 +1,11 @@
-use std::fmt::{Debug, Formatter};
-use std::future::Future;
-use std::sync::{LazyLock};
+use crate::{Executor, InnerJoinHandle, JoinHandle};
 use futures::executor::ThreadPool;
 use futures::future::{AbortHandle, Abortable};
-use crate::{Executor, InnerJoinHandle, JoinHandle};
+use std::fmt::{Debug, Formatter};
+use std::future::Future;
+use std::sync::LazyLock;
 
-const THREADPOOL_EXECUTOR: LazyLock<ThreadPool> = LazyLock::new(|| {
-    ThreadPool::new().unwrap()
-});
+const THREADPOOL_EXECUTOR: LazyLock<ThreadPool> = LazyLock::new(|| ThreadPool::new().unwrap());
 
 #[derive(Clone, Copy, Default)]
 pub struct ThreadPoolExecutor;
@@ -44,9 +42,9 @@ impl Executor for ThreadPoolExecutor {
 
 #[cfg(test)]
 mod tests {
-    use futures::channel::mpsc::Receiver;
-    use crate::Executor;
     use super::ThreadPoolExecutor;
+    use crate::Executor;
+    use futures::channel::mpsc::Receiver;
 
     async fn task(tx: futures::channel::oneshot::Sender<()>) {
         futures_timer::Delay::new(std::time::Duration::from_secs(5)).await;

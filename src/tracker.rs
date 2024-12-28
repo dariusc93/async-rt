@@ -1,20 +1,20 @@
+use crate::{Executor, JoinHandle};
 use std::fmt::Debug;
 use std::future::Future;
 use std::pin::Pin;
-use std::sync::Arc;
 use std::sync::atomic::AtomicUsize;
+use std::sync::Arc;
 use std::task::{Context, Poll};
-use crate::{Executor, JoinHandle};
 
-/// Track running tasks. 
-/// 
+/// Track running tasks.
+///
 /// Note that there is no guarantee that the runtime would drop the future after it is done, therefore
 /// this should only be used for purely approx statistics and not actual numbers. Additionally,
 /// it does not track any tasks spawned directly by the runtime but only by [`Executor::spawn`] through
 /// this struct.
 pub struct TrackerExecutor<E> {
     executor: E,
-    counter: Arc<AtomicUsize>
+    counter: Arc<AtomicUsize>,
 }
 
 impl<E> Debug for TrackerExecutor<E> {
@@ -27,10 +27,10 @@ impl<E: Executor> TrackerExecutor<E> {
     pub fn new(executor: E) -> Self {
         Self {
             executor,
-            counter: Arc::default()
+            counter: Arc::default(),
         }
     }
-    
+
     /// Number of active tasks.
     pub fn count(&self) -> usize {
         self.counter.load(std::sync::atomic::Ordering::SeqCst)
@@ -39,16 +39,13 @@ impl<E: Executor> TrackerExecutor<E> {
 
 struct FutureCounter<F> {
     future: F,
-    counter: Arc<AtomicUsize>
+    counter: Arc<AtomicUsize>,
 }
 
 impl<F> FutureCounter<F> {
     pub fn new(future: F, counter: Arc<AtomicUsize>) -> Self {
         counter.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-        Self {
-            future,
-            counter
-        }
+        Self { future, counter }
     }
 }
 
@@ -64,7 +61,8 @@ where
 
 impl<F> Drop for FutureCounter<F> {
     fn drop(&mut self) {
-        self.counter.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
+        self.counter
+            .fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
     }
 }
 
@@ -83,12 +81,12 @@ impl<E: Executor> Executor for TrackerExecutor<E> {
 
 #[cfg(test)]
 mod tests {
+    use super::TrackerExecutor;
+    use crate::rt::tokio::TokioExecutor;
+    use crate::Executor;
     use std::future::Future;
     use std::pin::Pin;
     use std::task::{Context, Poll};
-    use crate::Executor;
-    use crate::rt::tokio::TokioExecutor;
-    use super::TrackerExecutor;
 
     #[derive(Default)]
     struct Yield {
@@ -107,11 +105,11 @@ mod tests {
             Poll::Pending
         }
     }
-    
+
     fn _yield() -> Yield {
         Yield::default()
     }
-    
+
     #[tokio::test]
     async fn test_tracker_executor() {
         let executor = TrackerExecutor::new(TokioExecutor);

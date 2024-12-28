@@ -31,7 +31,7 @@ impl<T> Debug for JoinHandle<T> {
 }
 
 enum InnerJoinHandle<T> {
-    #[cfg(not(target_arch = "wasm32"))]
+    #[cfg(all(feature = "tokio", not(target_arch = "wasm32")))]
     TokioHandle(::tokio::task::JoinHandle<T>),
     #[allow(dead_code)]
     CustomHandle {
@@ -58,7 +58,7 @@ impl<T> JoinHandle<T> {
 impl<T> JoinHandle<T> {
     pub fn abort(&self) {
         match self.inner {
-            #[cfg(not(target_arch = "wasm32"))]
+            #[cfg(all(feature = "tokio", not(target_arch = "wasm32")))]
             InnerJoinHandle::TokioHandle(ref handle) => handle.abort(),
             InnerJoinHandle::CustomHandle { ref handle, .. } => handle.abort(),
             InnerJoinHandle::Empty => {}
@@ -67,7 +67,7 @@ impl<T> JoinHandle<T> {
 
     pub fn is_finished(&self) -> bool {
         match self.inner {
-            #[cfg(not(target_arch = "wasm32"))]
+            #[cfg(all(feature = "tokio", not(target_arch = "wasm32")))]
             InnerJoinHandle::TokioHandle(ref handle) => handle.is_finished(),
             InnerJoinHandle::CustomHandle {
                 ref handle,
@@ -91,7 +91,7 @@ impl<T> Future for JoinHandle<T> {
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         let inner = &mut self.inner;
         match inner {
-            #[cfg(not(target_arch = "wasm32"))]
+            #[cfg(all(feature = "tokio", not(target_arch = "wasm32")))]
             InnerJoinHandle::TokioHandle(handle) => {
                 let fut = futures::ready!(Pin::new(handle).poll(cx));
 
@@ -303,7 +303,7 @@ impl Executor for ExecutorSwitch {
         F: Future + Send + 'static,
         F::Output: Send + 'static,
     {
-        #[cfg(all(not(target_arch = "wasm32")))]
+        #[cfg(all(feature = "tokio", not(target_arch = "wasm32")))]
         let executor = rt::tokio::TokioExecutor;
         #[cfg(target_arch = "wasm32")]
         let executor = rt::wasm::WasmExecutor;

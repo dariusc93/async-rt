@@ -14,6 +14,7 @@ exclude = [".gitignore"]
 
 [features]
 default = ["tokio"]
+threadpool = ["futures/thread-pool"]
 
 [dependencies]
 futures = { version = "0.3.31", default-features = false, features = ["std", "alloc", "async-await"] }

@@ -1,4 +1,5 @@
 pub mod rt;
+pub mod task;
 pub mod global;
 
 use std::fmt::{Debug, Formatter};
@@ -292,7 +293,6 @@ pub trait Executor {
     /// Spawns a new asynchronous task that accepts messages to the task using [`channels`](futures::channel::mpsc).
     /// This function returns an handle that allows sending a message or if there is no reference to the handle at all
     /// (in other words, all handles are dropped), the task would be aborted.
-    #[allow(dead_code)]
     fn spawn_coroutine<T, F, Fut>(&self, mut f: F) -> CommunicationTask<T>
     where
         F: FnMut(Receiver<T>) -> Fut,

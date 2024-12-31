@@ -5,7 +5,7 @@ pub mod tracker;
 
 use std::fmt::{Debug, Formatter};
 
-use futures::channel::mpsc::Receiver;
+use futures::channel::mpsc::{Receiver, UnboundedReceiver};
 use futures::future::{AbortHandle, Aborted};
 use futures::SinkExt;
 use std::future::Future;
@@ -263,6 +263,42 @@ where
     }
 }
 
+/// A task that accepts messages
+#[derive(Clone)]
+pub struct UnboundedCommunicationTask<T> {
+    _task_handle: AbortableJoinHandle<()>,
+    _channel_tx: futures::channel::mpsc::UnboundedSender<T>,
+}
+
+impl<T> Debug for UnboundedCommunicationTask<T> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("UnboundedCommunicationTask").finish()
+    }
+}
+
+impl<T> UnboundedCommunicationTask<T>
+where
+    T: Send + Sync + 'static,
+{
+    /// Send message to task
+    pub fn send(&mut self, data: T) -> std::io::Result<()> {
+        self._channel_tx
+            .unbounded_send(data)
+            .map_err(std::io::Error::other)
+    }
+
+    /// Abort the task
+    pub fn abort(self) {
+        self._channel_tx.close_channel();
+        self._task_handle.abort();
+    }
+
+    /// Check to determine if the task is active.
+    pub fn is_active(&self) -> bool {
+        !self._task_handle.is_finished() && !self._channel_tx.is_closed()
+    }
+}
+
 pub trait Executor {
     /// Spawns a new asynchronous task in the background, returning an Future [`JoinHandle`] for it.
     fn spawn<F>(&self, future: F) -> JoinHandle<F::Output>
@@ -327,6 +363,44 @@ pub trait Executor {
         let fut = f(context, rx);
         let _task_handle = self.spawn_abortable(fut);
         CommunicationTask {
+            _task_handle,
+            _channel_tx: tx,
+        }
+    }
+
+    /// Spawns a new asynchronous task that accepts messages to the task using [`channels`](futures::channel::mpsc).
+    /// This function returns an handle that allows sending a message or if there is no reference to the handle at all
+    /// (in other words, all handles are dropped), the task would be aborted.
+    fn spawn_unbounded_coroutine<T, F, Fut>(&self, mut f: F) -> UnboundedCommunicationTask<T>
+    where
+        F: FnMut(UnboundedReceiver<T>) -> Fut,
+        Fut: Future<Output = ()> + Send + 'static,
+    {
+        let (tx, rx) = futures::channel::mpsc::unbounded();
+        let fut = f(rx);
+        let _task_handle = self.spawn_abortable(fut);
+        UnboundedCommunicationTask {
+            _task_handle,
+            _channel_tx: tx,
+        }
+    }
+
+    /// Spawns a new asynchronous task with provided context, that accepts messages to the task using [`channels`](futures::channel::mpsc).
+    /// This function returns an handle that allows sending a message or if there is no reference to the handle at all
+    /// (in other words, all handles are dropped), the task would be aborted.
+    fn spawn_unbounded_coroutine_with_context<T, F, C, Fut>(
+        &self,
+        context: C,
+        mut f: F,
+    ) -> UnboundedCommunicationTask<T>
+    where
+        F: FnMut(C, UnboundedReceiver<T>) -> Fut,
+        Fut: Future<Output = ()> + Send + 'static,
+    {
+        let (tx, rx) = futures::channel::mpsc::unbounded();
+        let fut = f(context, rx);
+        let _task_handle = self.spawn_abortable(fut);
+        UnboundedCommunicationTask {
             _task_handle,
             _channel_tx: tx,
         }

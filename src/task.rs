@@ -1,6 +1,8 @@
 use crate::global::GlobalExecutor;
-use crate::{AbortableJoinHandle, CommunicationTask, Executor, JoinHandle};
-use futures::channel::mpsc::Receiver;
+use crate::{
+    AbortableJoinHandle, CommunicationTask, Executor, JoinHandle, UnboundedCommunicationTask,
+};
+use futures::channel::mpsc::{Receiver, UnboundedReceiver};
 use std::future::Future;
 
 const EXECUTOR: GlobalExecutor = GlobalExecutor;
@@ -51,19 +53,35 @@ where
 /// Spawns a new asynchronous task with provided context, that accepts messages to the task using [`channels`](futures::channel::mpsc).
 /// This function returns an handle that allows sending a message or if there is no reference to the handle at all
 /// (in other words, all handles are dropped), the task would be aborted.
-pub fn spawn_coroutine_with_context<T, F, C, Fut>(
-    context: C,
-    mut f: F,
-) -> CommunicationTask<T>
+pub fn spawn_coroutine_with_context<T, F, C, Fut>(context: C, f: F) -> CommunicationTask<T>
 where
     F: FnMut(C, Receiver<T>) -> Fut,
     Fut: Future<Output = ()> + Send + 'static,
 {
-    let (tx, rx) = futures::channel::mpsc::channel(1);
-    let fut = f(context, rx);
-    let _task_handle = EXECUTOR.spawn_abortable(fut);
-    CommunicationTask {
-        _task_handle,
-        _channel_tx: tx,
-    }
+    EXECUTOR.spawn_coroutine_with_context(context, f)
+}
+
+/// Spawns a new asynchronous task that accepts messages to the task using [`channels`](futures::channel::mpsc).
+/// This function returns an handle that allows sending a message or if there is no reference to the handle at all
+/// (in other words, all handles are dropped), the task would be aborted.
+pub fn spawn_unbounded_coroutine<T, F, Fut>(f: F) -> UnboundedCommunicationTask<T>
+where
+    F: FnMut(UnboundedReceiver<T>) -> Fut,
+    Fut: Future<Output = ()> + Send + 'static,
+{
+    EXECUTOR.spawn_unbounded_coroutine(f)
+}
+
+/// Spawns a new asynchronous task with provided context, that accepts messages to the task using [`channels`](futures::channel::mpsc).
+/// This function returns an handle that allows sending a message or if there is no reference to the handle at all
+/// (in other words, all handles are dropped), the task would be aborted.
+pub fn spawn_unbounded_coroutine_with_context<T, F, C, Fut>(
+    context: C,
+    f: F,
+) -> UnboundedCommunicationTask<T>
+where
+    F: FnMut(C, UnboundedReceiver<T>) -> Fut,
+    Fut: Future<Output = ()> + Send + 'static,
+{
+    EXECUTOR.spawn_unbounded_coroutine_with_context(context, f)
 }

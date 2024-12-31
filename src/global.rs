@@ -18,7 +18,11 @@ impl Executor for GlobalExecutor {
         {
             crate::rt::tokio::TokioExecutor.spawn(future)
         }
-        #[cfg(all(feature = "threadpool", not(feature = "tokio"), not(target_arch = "wasm32")))]
+        #[cfg(all(
+            feature = "threadpool",
+            not(feature = "tokio"),
+            not(target_arch = "wasm32")
+        ))]
         {
             crate::rt::threadpool::ThreadPoolExecutor.spawn(future)
         }
@@ -27,7 +31,11 @@ impl Executor for GlobalExecutor {
             crate::rt::wasm::WasmExecutor.spawn(future)
         }
 
-        #[cfg(all(not(feature = "threadpool"), not(feature = "tokio"), not(target_arch = "wasm32")))]
+        #[cfg(all(
+            not(feature = "threadpool"),
+            not(feature = "tokio"),
+            not(target_arch = "wasm32")
+        ))]
         {
             _ = future;
             unreachable!()

@@ -224,10 +224,18 @@ impl<T> Future for AbortableJoinHandle<T> {
 }
 
 /// A task that accepts messages
-#[derive(Clone)]
 pub struct CommunicationTask<T> {
     _task_handle: AbortableJoinHandle<()>,
     _channel_tx: futures::channel::mpsc::Sender<T>,
+}
+
+impl<T> Clone for CommunicationTask<T> {
+    fn clone(&self) -> Self {
+        CommunicationTask {
+            _task_handle: self._task_handle.clone(),
+            _channel_tx: self._channel_tx.clone(),
+        }
+    }
 }
 
 impl<T> Debug for CommunicationTask<T> {
@@ -270,10 +278,18 @@ where
 }
 
 /// A task that accepts messages
-#[derive(Clone)]
 pub struct UnboundedCommunicationTask<T> {
     _task_handle: AbortableJoinHandle<()>,
     _channel_tx: futures::channel::mpsc::UnboundedSender<T>,
+}
+
+impl<T> Clone for UnboundedCommunicationTask<T> {
+    fn clone(&self) -> Self {
+        UnboundedCommunicationTask {
+            _task_handle: self._task_handle.clone(),
+            _channel_tx: self._channel_tx.clone(),
+        }
+    }
 }
 
 impl<T> Debug for UnboundedCommunicationTask<T> {

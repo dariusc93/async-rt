@@ -1,10 +1,11 @@
-use crate::{Executor, JoinHandle};
+use crate::{Executor, ExecutorTimer, JoinHandle};
 use std::fmt::Debug;
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::atomic::AtomicUsize;
 use std::sync::Arc;
 use std::task::{Context, Poll};
+use std::time::Duration;
 
 /// Track running tasks.
 ///
@@ -76,6 +77,24 @@ impl<E: Executor> Executor for TrackerExecutor<E> {
         let future = Box::pin(future);
         let future = FutureCounter::new(future, counter);
         self.executor.spawn(future)
+    }
+}
+
+impl<E: Executor> ExecutorTimer for TrackerExecutor<E> {
+    fn sleep(&self, duration: Duration) -> impl Future<Output = ()> + Send + 'static {
+        self.executor.sleep(duration)
+    }
+
+    fn timeout<F>(
+        &self,
+        duration: Duration,
+        future: F,
+    ) -> impl Future<Output = std::io::Result<F::Output>> + Send + 'static
+    where
+        F: Future + Send + 'static,
+        F::Output: Send + 'static,
+    {
+        self.executor.timeout(duration, future)
     }
 }
 

@@ -1,9 +1,11 @@
-use crate::{Executor, InnerJoinHandle, JoinHandle};
+use crate::{Executor, ExecutorTimer, InnerJoinHandle, JoinHandle};
 use futures::executor::ThreadPool;
 use futures::future::{AbortHandle, Abortable};
+use futures_timeout::TimeoutExt;
 use std::fmt::{Debug, Formatter};
 use std::future::Future;
 use std::sync::LazyLock;
+use std::time::Duration;
 
 const THREADPOOL_EXECUTOR: LazyLock<ThreadPool> = LazyLock::new(|| ThreadPool::new().unwrap());
 
@@ -37,6 +39,24 @@ impl Executor for ThreadPoolExecutor {
         };
 
         JoinHandle { inner }
+    }
+}
+
+impl ExecutorTimer for ThreadPoolExecutor {
+    fn sleep(&self, duration: Duration) -> impl Future<Output = ()> + Send + 'static {
+        futures_timer::Delay::new(duration)
+    }
+
+    fn timeout<F>(
+        &self,
+        duration: Duration,
+        future: F,
+    ) -> impl Future<Output = std::io::Result<F::Output>> + Send + 'static
+    where
+        F: Future + Send + 'static,
+        F::Output: Send + 'static,
+    {
+        future.timeout(duration)
     }
 }
 

@@ -1,9 +1,11 @@
 use crate::global::GlobalExecutor;
 use crate::{
-    AbortableJoinHandle, CommunicationTask, Executor, JoinHandle, UnboundedCommunicationTask,
+    AbortableJoinHandle, CommunicationTask, Executor, ExecutorTimer, JoinHandle,
+    UnboundedCommunicationTask,
 };
 use futures::channel::mpsc::{Receiver, UnboundedReceiver};
 use std::future::Future;
+use std::time::Duration;
 
 const EXECUTOR: GlobalExecutor = GlobalExecutor;
 
@@ -84,4 +86,22 @@ where
     Fut: Future<Output = ()> + Send + 'static,
 {
     EXECUTOR.spawn_unbounded_coroutine_with_context(context, f)
+}
+
+/// Creates a future that waits until duration has elapsed.
+pub fn sleep(duration: Duration) -> impl Future<Output = ()> + Send + 'static {
+    EXECUTOR.sleep(duration)
+}
+
+/// Creates a future that consumes and runs a future to completion before specific duration has
+/// elapsed.
+pub fn timeout<F>(
+    duration: Duration,
+    future: F,
+) -> impl Future<Output = std::io::Result<F::Output>> + Send + 'static
+where
+    F: Future + Send + 'static,
+    F::Output: Send + 'static,
+{
+    EXECUTOR.timeout(duration, future)
 }

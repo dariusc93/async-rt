@@ -1,5 +1,7 @@
-use crate::{Executor, InnerJoinHandle, JoinHandle};
+use crate::{Executor, ExecutorTimer, InnerJoinHandle, JoinHandle};
+use futures::TryFutureExt;
 use std::future::Future;
+use std::time::Duration;
 
 /// Tokio executor
 #[derive(Clone, Copy, Debug, PartialOrd, PartialEq, Eq)]
@@ -14,6 +16,24 @@ impl Executor for TokioExecutor {
         let handle = tokio::task::spawn(future);
         let inner = InnerJoinHandle::TokioHandle(handle);
         JoinHandle { inner }
+    }
+}
+
+impl ExecutorTimer for TokioExecutor {
+    fn sleep(&self, duration: Duration) -> impl Future<Output = ()> + Send + 'static {
+        tokio::time::sleep(duration)
+    }
+    fn timeout<F>(
+        &self,
+        duration: Duration,
+        future: F,
+    ) -> impl Future<Output = std::io::Result<F::Output>> + Send + 'static
+    where
+        F: Future + Send + 'static,
+        F::Output: Send + 'static,
+    {
+        tokio::time::timeout(duration, future)
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::TimedOut, e))
     }
 }
 

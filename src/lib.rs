@@ -12,6 +12,7 @@ use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll};
+use std::time::Duration;
 
 #[cfg(all(
     not(feature = "threadpool"),
@@ -321,7 +322,7 @@ where
     }
 }
 
-pub trait Executor {
+pub trait Executor: ExecutorTimer {
     /// Spawns a new asynchronous task in the background, returning an Future [`JoinHandle`] for it.
     fn spawn<F>(&self, future: F) -> JoinHandle<F::Output>
     where
@@ -429,14 +430,31 @@ pub trait Executor {
     }
 }
 
+pub trait ExecutorTimer {
+    /// Creates a future that waits until duration has elapsed.
+    fn sleep(&self, duration: Duration) -> impl Future<Output = ()> + Send + 'static;
+
+    /// Creates a future that consumes and runs a future to completion before specific duration has
+    /// elapsed.
+    fn timeout<F>(
+        &self,
+        duration: Duration,
+        future: F,
+    ) -> impl Future<Output = std::io::Result<F::Output>> + Send + 'static
+    where
+        F: Future + Send + 'static,
+        F::Output: Send + 'static;
+}
+
 #[cfg(test)]
 mod tests {
-    use crate::{Executor, InnerJoinHandle, JoinHandle};
+    use crate::{Executor, ExecutorTimer, InnerJoinHandle, JoinHandle};
     use futures::future::AbortHandle;
     use std::future::Future;
+    use std::time::Duration;
 
     async fn task(tx: futures::channel::oneshot::Sender<()>) {
-        futures_timer::Delay::new(std::time::Duration::from_secs(5)).await;
+        futures_timer::Delay::new(Duration::from_secs(5)).await;
         let _ = tx.send(());
         unreachable!();
     }
@@ -477,6 +495,24 @@ mod tests {
                 };
 
                 JoinHandle { inner }
+            }
+        }
+
+        impl ExecutorTimer for FuturesExecutor {
+            fn timeout<F>(
+                &self,
+                _: Duration,
+                _: F,
+            ) -> impl Future<Output = std::io::Result<F::Output>> + Send + 'static
+            where
+                F: Future + Send + 'static,
+                F::Output: Send + 'static,
+            {
+                futures::future::pending()
+            }
+
+            fn sleep(&self, _: Duration) -> impl Future<Output = ()> + Send + 'static {
+                futures::future::ready(())
             }
         }
 

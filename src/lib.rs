@@ -230,6 +230,9 @@ pub struct CommunicationTask<T> {
     _channel_tx: futures::channel::mpsc::Sender<T>,
 }
 
+unsafe impl<T: Send> Send for CommunicationTask<T> {}
+unsafe impl<T: Send> Sync for CommunicationTask<T> {}
+
 impl<T> Clone for CommunicationTask<T> {
     fn clone(&self) -> Self {
         CommunicationTask {
@@ -250,12 +253,11 @@ where
     T: Send + Sync + 'static,
 {
     /// Send message to task
-    pub fn send(&mut self, data: T) -> impl Future<Output = std::io::Result<()>> + Send + 'static {
-        let mut tx = self._channel_tx.clone();
-        async move {
-            let r = tx.send(data).await;
-            r.map_err(std::io::Error::other)
-        }
+    pub async fn send(&mut self, data: T) -> std::io::Result<()> {
+        self._channel_tx
+            .send(data)
+            .await
+            .map_err(std::io::Error::other)
     }
 
     /// Attempts to send message to task, returning an error if channel is full or closed
@@ -283,6 +285,9 @@ pub struct UnboundedCommunicationTask<T> {
     _task_handle: AbortableJoinHandle<()>,
     _channel_tx: futures::channel::mpsc::UnboundedSender<T>,
 }
+
+unsafe impl<T: Send> Send for UnboundedCommunicationTask<T> {}
+unsafe impl<T: Send> Sync for UnboundedCommunicationTask<T> {}
 
 impl<T> Clone for UnboundedCommunicationTask<T> {
     fn clone(&self) -> Self {

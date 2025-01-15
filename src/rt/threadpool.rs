@@ -38,6 +38,15 @@ impl Executor for ThreadPoolExecutor {
 
         JoinHandle { inner }
     }
+
+    fn spawn_local<F>(&self, future: F) -> JoinHandle<F::Output>
+    where
+        F: Future + 'static,
+        F::Output: 'static,
+    {
+        _ = future;
+        unimplemented!()
+    }
 }
 
 #[cfg(test)]

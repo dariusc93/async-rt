@@ -346,6 +346,12 @@ pub trait Executor {
         F: Future + Send + 'static,
         F::Output: Send + 'static;
 
+    /// Spawns a new asynchronous task that's `!Send`, in the background, returning an Future [`JoinHandle`] for it.
+    fn spawn_local<F>(&self, future: F) -> JoinHandle<F::Output>
+    where
+        F: Future + 'static,
+        F::Output: 'static;
+
     /// Spawns a new asynchronous task in the background, returning an abortable handle that will cancel the task
     /// once the handle is dropped.
     ///
@@ -495,6 +501,15 @@ mod tests {
                 };
 
                 JoinHandle { inner }
+            }
+
+            fn spawn_local<F>(&self, future: F) -> JoinHandle<F::Output>
+            where
+                F: Future + 'static,
+                F::Output: 'static,
+            {
+                _ = future;
+                unimplemented!()
             }
         }
 

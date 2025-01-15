@@ -16,6 +16,15 @@ where
     EXECUTOR.spawn(future)
 }
 
+/// Spawns a new asynchronous task in the background, returning an Future [`JoinHandle`] for it.
+pub fn spawn_local<F>(future: F) -> JoinHandle<F::Output>
+where
+    F: Future + 'static,
+    F::Output: 'static,
+{
+    EXECUTOR.spawn_local(future)
+}
+
 /// Spawns a new asynchronous task in the background, returning an abortable handle that will cancel the task
 /// once the handle is dropped.
 ///

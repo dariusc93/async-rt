@@ -15,6 +15,16 @@ impl Executor for TokioExecutor {
         let inner = InnerJoinHandle::TokioHandle(handle);
         JoinHandle { inner }
     }
+
+    fn spawn_local<F>(&self, future: F) -> JoinHandle<F::Output>
+    where
+        F: Future + 'static,
+        F::Output: 'static,
+    {
+        let handle = tokio::task::spawn_local(future);
+        let inner = InnerJoinHandle::TokioHandle(handle);
+        JoinHandle { inner }
+    }
 }
 
 #[cfg(test)]

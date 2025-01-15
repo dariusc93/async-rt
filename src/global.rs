@@ -41,4 +41,37 @@ impl Executor for GlobalExecutor {
             unreachable!()
         }
     }
+
+    fn spawn_local<F>(&self, future: F) -> JoinHandle<F::Output>
+    where
+        F: Future + 'static,
+        F::Output: 'static,
+    {
+        #[cfg(all(feature = "tokio", not(target_arch = "wasm32")))]
+        {
+            crate::rt::tokio::TokioExecutor.spawn_local(future)
+        }
+        #[cfg(all(
+            feature = "threadpool",
+            not(feature = "tokio"),
+            not(target_arch = "wasm32")
+        ))]
+        {
+            crate::rt::threadpool::ThreadPoolExecutor.spawn_local(future)
+        }
+        #[cfg(target_arch = "wasm32")]
+        {
+            crate::rt::wasm::WasmExecutor.spawn_local(future)
+        }
+
+        #[cfg(all(
+            not(feature = "threadpool"),
+            not(feature = "tokio"),
+            not(target_arch = "wasm32")
+        ))]
+        {
+            _ = future;
+            unreachable!()
+        }
+    }
 }

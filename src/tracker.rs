@@ -77,6 +77,17 @@ impl<E: Executor> Executor for TrackerExecutor<E> {
         let future = FutureCounter::new(future, counter);
         self.executor.spawn(future)
     }
+
+    fn spawn_local<F>(&self, future: F) -> JoinHandle<F::Output>
+    where
+        F: Future + 'static,
+        F::Output: 'static,
+    {
+        let counter = self.counter.clone();
+        let future = Box::pin(future);
+        let future = FutureCounter::new(future, counter);
+        self.executor.spawn_local(future)
+    }
 }
 
 #[cfg(test)]

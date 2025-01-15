@@ -25,22 +25,23 @@ pub struct TokioRuntimeExecutor {
 }
 
 impl TokioRuntimeExecutor {
+    /// Creates a tokio runtime with the current thread scheduler selected.
     pub fn with_single_thread() -> std::io::Result<Self> {
         let runtime = tokio::runtime::Builder::new_current_thread()
             .enable_all()
-            .build()
-            .map(Arc::new)?;
-        Ok(Self { runtime })
+            .build()?;
+        Ok(Self::with_runtime(runtime))
     }
 
+    /// Creates a tokio runtime with multi-thread scheduler selected.
     pub fn with_multi_thread() -> std::io::Result<Self> {
         let runtime = tokio::runtime::Builder::new_multi_thread()
             .enable_all()
-            .build()
-            .map(Arc::new)?;
-        Ok(Self { runtime })
+            .build()?;
+        Ok(Self::with_runtime(runtime))
     }
 
+    /// Create an executor with the supplied [`Runtime`].
     pub fn with_runtime(runtime: Runtime) -> Self {
         let runtime = Arc::new(runtime);
         Self { runtime }

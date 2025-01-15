@@ -198,6 +198,10 @@ impl<T> AbortableJoinHandle<T> {
         self.handle.inner.lock().is_finished()
     }
 
+    /// Replace the current handle with an existing one.
+    ///
+    /// Note that if this is called with an non-empty handle, the existing task
+    /// will not be terminated when it is replaced.
     pub unsafe fn replace(&mut self, inner: AbortableJoinHandle<T>) {
         let current_handle = &mut *self.handle.inner.lock();
         let inner_handle = &mut *inner.handle.inner.lock();

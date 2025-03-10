@@ -66,15 +66,15 @@ mod tests {
     use crate::Executor;
     use futures::channel::mpsc::{Receiver, UnboundedReceiver};
 
-    async fn task(tx: futures::channel::oneshot::Sender<()>) {
-        futures_timer::Delay::new(std::time::Duration::from_secs(5)).await;
-        let _ = tx.send(());
-        unreachable!();
-    }
-
     #[tokio::test]
     async fn default_abortable_task() {
         let executor = TokioExecutor;
+
+        async fn task(tx: futures::channel::oneshot::Sender<()>) {
+            futures_timer::Delay::new(std::time::Duration::from_secs(5)).await;
+            let _ = tx.send(());
+            unreachable!();
+        }
 
         let (tx, rx) = futures::channel::oneshot::channel::<()>();
 
@@ -136,7 +136,7 @@ mod tests {
                             state.message = msg;
                         }
                         Message::Get(resp) => {
-                            _ = resp.send(state.message.clone()).unwrap();
+                            let _ = resp.send(state.message.clone()).unwrap();
                         }
                     }
                 }
@@ -205,7 +205,7 @@ mod tests {
                             state.message = msg;
                         }
                         Message::Get(resp) => {
-                            _ = resp.send(state.message.clone()).unwrap();
+                            let _ = resp.send(state.message.clone()).unwrap();
                         }
                     }
                 }

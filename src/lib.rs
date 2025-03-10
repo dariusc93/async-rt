@@ -96,14 +96,21 @@ impl<T> JoinHandle<T> {
     }
 
     /// Replace the current handle with the provided [`JoinHandle`].
+    ///
+    /// # Safety
+    ///
+    /// Note that if this is called with a non-empty handle, the existing task
+    /// will not be terminated when it is replaced.
     pub unsafe fn replace(&mut self, mut handle: JoinHandle<T>) {
         self.inner = std::mem::take(&mut handle.inner);
     }
 
     /// Replace the current handle with the provided [`JoinHandle`].
     ///
-    /// Note that this will replace the handle in-place, leaving the provided handle
-    /// empty.
+    /// # Safety
+    ///
+    /// Note that if this is called with a non-empty handle, the existing task
+    /// will not be terminated when it is replaced.
     pub unsafe fn replace_in_place(&mut self, handle: &mut JoinHandle<T>) {
         self.inner = std::mem::take(&mut handle.inner);
     }
@@ -198,6 +205,12 @@ impl<T> AbortableJoinHandle<T> {
         self.handle.inner.lock().is_finished()
     }
 
+    /// Replace the current handle with an existing one.
+    ///
+    /// # Safety
+    ///
+    /// Note that if this is called with a non-empty handle, the existing task
+    /// will not be terminated when it is replaced.
     pub unsafe fn replace(&mut self, inner: AbortableJoinHandle<T>) {
         let current_handle = &mut *self.handle.inner.lock();
         let inner_handle = &mut *inner.handle.inner.lock();

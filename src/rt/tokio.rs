@@ -1,5 +1,7 @@
 use crate::{Executor, InnerJoinHandle, JoinHandle};
 use std::future::Future;
+use std::sync::Arc;
+use tokio::runtime::Runtime;
 
 /// Tokio executor
 #[derive(Clone, Copy, Debug, PartialOrd, PartialEq, Eq)]
@@ -12,6 +14,48 @@ impl Executor for TokioExecutor {
         F::Output: Send + 'static,
     {
         let handle = tokio::task::spawn(future);
+        let inner = InnerJoinHandle::TokioHandle(handle);
+        JoinHandle { inner }
+    }
+}
+
+/// Tokio executor with an explicit [`Runtime`]
+#[derive(Clone, Debug)]
+pub struct TokioRuntimeExecutor {
+    runtime: Arc<Runtime>,
+}
+
+impl TokioRuntimeExecutor {
+    /// Creates a tokio runtime with the current thread scheduler selected.
+    pub fn with_single_thread() -> std::io::Result<Self> {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()?;
+        Ok(Self::with_runtime(runtime))
+    }
+
+    /// Creates a tokio runtime with multi-thread scheduler selected.
+    pub fn with_multi_thread() -> std::io::Result<Self> {
+        let runtime = tokio::runtime::Builder::new_multi_thread()
+            .enable_all()
+            .build()?;
+        Ok(Self::with_runtime(runtime))
+    }
+
+    /// Create an executor with the supplied [`Runtime`].
+    pub fn with_runtime(runtime: Runtime) -> Self {
+        let runtime = Arc::new(runtime);
+        Self { runtime }
+    }
+}
+
+impl Executor for TokioRuntimeExecutor {
+    fn spawn<F>(&self, future: F) -> JoinHandle<F::Output>
+    where
+        F: Future + Send + 'static,
+        F::Output: Send + 'static,
+    {
+        let handle = self.runtime.spawn(future);
         let inner = InnerJoinHandle::TokioHandle(handle);
         JoinHandle { inner }
     }

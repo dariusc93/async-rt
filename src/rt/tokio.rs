@@ -19,6 +19,7 @@ impl Executor for TokioExecutor {
     }
 }
 
+/// Tokio executor with an explicit [`Runtime`]
 #[derive(Clone, Debug)]
 pub struct TokioRuntimeExecutor {
     runtime: Arc<Runtime>,

@@ -75,7 +75,7 @@ mod tests {
             futures_timer::Delay::new(std::time::Duration::from_secs(5)).await;
             let _ = tx.send(());
             unreachable!();
-        }    
+        }
 
         let (tx, rx) = futures::channel::oneshot::channel::<()>();
 

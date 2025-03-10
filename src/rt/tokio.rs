@@ -137,7 +137,7 @@ mod tests {
                             state.message = msg;
                         }
                         Message::Get(resp) => {
-                            _ = resp.send(state.message.clone()).unwrap();
+                            resp.send(state.message.clone()).unwrap();
                         }
                     }
                 }
@@ -206,7 +206,7 @@ mod tests {
                             state.message = msg;
                         }
                         Message::Get(resp) => {
-                            _ = resp.send(state.message.clone()).unwrap();
+                            resp.send(state.message.clone()).unwrap();
                         }
                     }
                 }

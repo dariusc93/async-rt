@@ -1,5 +1,7 @@
 use crate::{Executor, InnerJoinHandle, JoinHandle};
 use std::future::Future;
+use std::sync::Arc;
+use tokio::runtime::Runtime;
 
 /// Tokio executor
 #[derive(Clone, Copy, Debug, PartialOrd, PartialEq, Eq)]
@@ -17,21 +19,63 @@ impl Executor for TokioExecutor {
     }
 }
 
+/// Tokio executor with an explicit [`Runtime`]
+#[derive(Clone, Debug)]
+pub struct TokioRuntimeExecutor {
+    runtime: Arc<Runtime>,
+}
+
+impl TokioRuntimeExecutor {
+    /// Creates a tokio runtime with the current thread scheduler selected.
+    pub fn with_single_thread() -> std::io::Result<Self> {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()?;
+        Ok(Self::with_runtime(runtime))
+    }
+
+    /// Creates a tokio runtime with multi-thread scheduler selected.
+    pub fn with_multi_thread() -> std::io::Result<Self> {
+        let runtime = tokio::runtime::Builder::new_multi_thread()
+            .enable_all()
+            .build()?;
+        Ok(Self::with_runtime(runtime))
+    }
+
+    /// Create an executor with the supplied [`Runtime`].
+    pub fn with_runtime(runtime: Runtime) -> Self {
+        let runtime = Arc::new(runtime);
+        Self { runtime }
+    }
+}
+
+impl Executor for TokioRuntimeExecutor {
+    fn spawn<F>(&self, future: F) -> JoinHandle<F::Output>
+    where
+        F: Future + Send + 'static,
+        F::Output: Send + 'static,
+    {
+        let handle = self.runtime.spawn(future);
+        let inner = InnerJoinHandle::TokioHandle(handle);
+        JoinHandle { inner }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::TokioExecutor;
     use crate::Executor;
     use futures::channel::mpsc::{Receiver, UnboundedReceiver};
 
-    async fn task(tx: futures::channel::oneshot::Sender<()>) {
-        futures_timer::Delay::new(std::time::Duration::from_secs(5)).await;
-        let _ = tx.send(());
-        unreachable!();
-    }
-
     #[tokio::test]
     async fn default_abortable_task() {
         let executor = TokioExecutor;
+
+        async fn task(tx: futures::channel::oneshot::Sender<()>) {
+            futures_timer::Delay::new(std::time::Duration::from_secs(5)).await;
+            let _ = tx.send(());
+            unreachable!();
+        }
 
         let (tx, rx) = futures::channel::oneshot::channel::<()>();
 
@@ -93,7 +137,7 @@ mod tests {
                             state.message = msg;
                         }
                         Message::Get(resp) => {
-                            let _ = resp.send(state.message.clone()).unwrap();
+                            resp.send(state.message.clone()).unwrap();
                         }
                     }
                 }
@@ -162,7 +206,7 @@ mod tests {
                             state.message = msg;
                         }
                         Message::Get(resp) => {
-                            let _ = resp.send(state.message.clone()).unwrap();
+                            resp.send(state.message.clone()).unwrap();
                         }
                     }
                 }

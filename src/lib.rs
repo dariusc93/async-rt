@@ -135,7 +135,7 @@ impl<T> Future for JoinHandle<T> {
             }
             InnerJoinHandle::CustomHandle { inner, .. } => {
                 let Some(this) = inner.as_mut() else {
-                    unreachable!("cannot poll completed future");
+                    unreachable!("cannot poll a completed future");
                 };
 
                 let fut = futures::ready!(Pin::new(this).poll(cx));
@@ -272,7 +272,7 @@ where
             .map_err(std::io::Error::other)
     }
 
-    /// Attempts to send message to task, returning an error if channel is full or closed
+    /// Attempts to send message to task, returning an error if channel is full or closed due to task being aborted.
     pub fn try_send(&self, data: T) -> std::io::Result<()> {
         self._channel_tx
             .clone()

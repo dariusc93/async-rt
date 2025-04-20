@@ -9,36 +9,43 @@ use std::future::Future;
 pub struct GlobalExecutor;
 
 impl Executor for GlobalExecutor {
+    #[cfg(all(feature = "tokio", not(target_arch = "wasm32")))]
     fn spawn<F>(&self, future: F) -> JoinHandle<F::Output>
     where
         F: Future + Send + 'static,
         F::Output: Send + 'static,
     {
-        #[cfg(all(feature = "tokio", not(target_arch = "wasm32")))]
-        {
-            crate::rt::tokio::TokioExecutor.spawn(future)
-        }
-        #[cfg(all(
-            feature = "threadpool",
-            not(feature = "tokio"),
-            not(target_arch = "wasm32")
-        ))]
-        {
-            crate::rt::threadpool::ThreadPoolExecutor.spawn(future)
-        }
-        #[cfg(target_arch = "wasm32")]
-        {
-            crate::rt::wasm::WasmExecutor.spawn(future)
-        }
+        crate::rt::tokio::TokioExecutor.spawn(future)
+    }
 
-        #[cfg(all(
-            not(feature = "threadpool"),
-            not(feature = "tokio"),
-            not(target_arch = "wasm32")
-        ))]
-        {
-            _ = future;
-            unreachable!()
-        }
+    #[cfg(all(feature = "threadpool", not(feature = "tokio")))]
+    fn spawn<F>(&self, future: F) -> JoinHandle<F::Output>
+    where
+        F: Future + Send + 'static,
+        F::Output: Send + 'static,
+    {
+        crate::rt::threadpool::ThreadPoolExecutor.spawn(future)
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    fn spawn<F>(&self, future: F) -> JoinHandle<F::Output>
+    where
+        F: Future + Send + 'static,
+        F::Output: Send + 'static,
+    {
+        crate::rt::wasm::WasmExecutor.spawn(future)
+    }
+
+    #[cfg(all(
+        not(feature = "threadpool"),
+        not(feature = "tokio"),
+        not(target_arch = "wasm32")
+    ))]
+    fn spawn<F>(&self, _: F) -> JoinHandle<F::Output>
+    where
+        F: Future + Send + 'static,
+        F::Output: Send + 'static,
+    {
+        unreachable!()
     }
 }

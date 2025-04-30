@@ -18,7 +18,7 @@ impl Executor for GlobalExecutor {
         crate::rt::tokio::TokioExecutor.spawn(future)
     }
 
-    #[cfg(all(feature = "threadpool", not(feature = "tokio")))]
+    #[cfg(all(feature = "threadpool", not(feature = "tokio"), not(target_arch = "wasm32")))]
     fn spawn<F>(&self, future: F) -> JoinHandle<F::Output>
     where
         F: Future + Send + 'static,
@@ -27,7 +27,11 @@ impl Executor for GlobalExecutor {
         crate::rt::threadpool::ThreadPoolExecutor.spawn(future)
     }
 
-    #[cfg(target_arch = "wasm32")]
+    #[cfg(all(
+        target_arch = "wasm32",
+        not(feature = "threadpool"),
+        not(feature = "tokio")
+    ))]
     fn spawn<F>(&self, future: F) -> JoinHandle<F::Output>
     where
         F: Future + Send + 'static,

@@ -30,7 +30,7 @@ compile_error!(
 ///
 /// This can be seen as an equivalent to [`std::thread::JoinHandle`] but for [`Future`] tasks rather than a thread.
 /// Note that the task associated with this `JoinHandle` will start running at the time [`Executor::spawn`] is called as
-/// well as according to the implemented runtime (i.e [`tokio`]), even if `JoinHandle` have not been awaited.
+/// well as according to the implemented runtime (i.e. [`tokio`]), even if `JoinHandle` has not been awaited.
 ///
 /// Dropping `JoinHandle` will not abort or cancel the task. In other words, the task will continue to run in the background
 /// and any return value will be lost.
@@ -64,7 +64,7 @@ impl<T> Default for InnerJoinHandle<T> {
 }
 
 impl<T> JoinHandle<T> {
-    /// Provide a empty [`JoinHandle`] with no associated task.
+    /// Provide an empty [`JoinHandle`] with no associated task.
     pub fn empty() -> Self {
         JoinHandle {
             inner: InnerJoinHandle::Empty,
@@ -164,8 +164,8 @@ impl<T> Future for JoinHandle<T> {
     }
 }
 
-/// The same as [`JoinHandle`] but designed to abort the task when all associated reference
-/// to the returned `AbortableJoinHandle` has was dropped.
+/// The same as [`JoinHandle`] but designed to abort the task when all associated references
+/// to the returned `AbortableJoinHandle` have been dropped.
 #[derive(Clone)]
 pub struct AbortableJoinHandle<T> {
     handle: Arc<InnerHandle<T>>,
@@ -268,7 +268,7 @@ impl<T> CommunicationTask<T>
 where
     T: Send + Sync + 'static,
 {
-    /// Send message to task
+    /// Send a message to the task
     pub async fn send(&mut self, data: T) -> std::io::Result<()> {
         self._channel_tx
             .send(data)
@@ -276,7 +276,7 @@ where
             .map_err(std::io::Error::other)
     }
 
-    /// Attempts to send message to task, returning an error if channel is full or closed due to task being aborted.
+    /// Attempts to send a message to the task, returning an error if the channel is full or closed due to the task being aborted.
     pub fn try_send(&self, data: T) -> std::io::Result<()> {
         self._channel_tx
             .clone()
@@ -324,7 +324,7 @@ impl<T> UnboundedCommunicationTask<T>
 where
     T: Send + Sync + 'static,
 {
-    /// Send message to task
+    /// Send a message to task
     pub fn send(&mut self, data: T) -> std::io::Result<()> {
         self._channel_tx
             .unbounded_send(data)
@@ -344,7 +344,7 @@ where
 }
 
 pub trait Executor {
-    /// Spawns a new asynchronous task in the background, returning an Future [`JoinHandle`] for it.
+    /// Spawns a new asynchronous task in the background, returning a Future [`JoinHandle`] for it.
     fn spawn<F>(&self, future: F) -> JoinHandle<F::Output>
     where
         F: Future + Send + 'static,
@@ -375,7 +375,7 @@ pub trait Executor {
     }
 
     /// Spawns a new asynchronous task that accepts messages to the task using [`channels`](futures::channel::mpsc).
-    /// This function returns an handle that allows sending a message or if there is no reference to the handle at all
+    /// This function returns a handle that allows sending a message, or if there is no reference to the handle at all
     /// (in other words, all handles are dropped), the task would be aborted.
     fn spawn_coroutine<T, F, Fut>(&self, mut f: F) -> CommunicationTask<T>
     where
@@ -391,8 +391,8 @@ pub trait Executor {
         }
     }
 
-    /// Spawns a new asynchronous task with provided context, that accepts messages to the task using [`channels`](futures::channel::mpsc).
-    /// This function returns an handle that allows sending a message or if there is no reference to the handle at all
+    /// Spawns a new asynchronous task with provided context that accepts messages to the task using [`channels`](futures::channel::mpsc).
+    /// This function returns a handle that allows sending a message, or if there is no reference to the handle at all
     /// (in other words, all handles are dropped), the task would be aborted.
     fn spawn_coroutine_with_context<T, F, C, Fut>(
         &self,
@@ -413,7 +413,7 @@ pub trait Executor {
     }
 
     /// Spawns a new asynchronous task that accepts messages to the task using [`channels`](futures::channel::mpsc).
-    /// This function returns an handle that allows sending a message or if there is no reference to the handle at all
+    /// This function returns a handle that allows sending a message, or if there is no reference to the handle at all
     /// (in other words, all handles are dropped), the task would be aborted.
     fn spawn_unbounded_coroutine<T, F, Fut>(&self, mut f: F) -> UnboundedCommunicationTask<T>
     where
@@ -429,8 +429,8 @@ pub trait Executor {
         }
     }
 
-    /// Spawns a new asynchronous task with provided context, that accepts messages to the task using [`channels`](futures::channel::mpsc).
-    /// This function returns an handle that allows sending a message or if there is no reference to the handle at all
+    /// Spawns a new asynchronous task with provided context that accepts messages to the task using [`channels`](futures::channel::mpsc).
+    /// This function returns a handle that allows sending a message, or if there is no reference to the handle at all
     /// (in other words, all handles are dropped), the task would be aborted.
     fn spawn_unbounded_coroutine_with_context<T, F, C, Fut>(
         &self,

@@ -8,7 +8,7 @@ use std::task::{Context, Poll};
 
 /// Track running tasks.
 ///
-/// Note that there is no guarantee that the runtime would drop the future after it is done, therefore
+/// Note that there is no guarantee that the runtime would drop the future after it is done; therefore,
 /// this should only be used for purely approx statistics and not actual numbers. Additionally,
 /// it does not track any tasks spawned directly by the runtime but only by [`Executor::spawn`] through
 /// this struct.

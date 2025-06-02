@@ -9,7 +9,7 @@ use std::task::{Context, Poll};
 
 const EXECUTOR: GlobalExecutor = GlobalExecutor;
 
-/// Spawns a new asynchronous task in the background, returning an Future [`JoinHandle`] for it.
+/// Spawns a new asynchronous task in the background, returning a Future [`JoinHandle`] for it.
 pub fn spawn<F>(future: F) -> JoinHandle<F::Output>
 where
     F: Future + Send + 'static,
@@ -31,7 +31,7 @@ where
     EXECUTOR.spawn_abortable(future)
 }
 
-/// Spawns a new asynchronous task in the background without an handle.
+/// Spawns a new asynchronous task in the background without a handle.
 /// Basically the same as [`spawn`].
 pub fn dispatch<F>(future: F)
 where
@@ -42,7 +42,7 @@ where
 }
 
 /// Spawns a new asynchronous task that accepts messages to the task using [`channels`](futures::channel::mpsc).
-/// This function returns an handle that allows sending a message or if there is no reference to the handle at all
+/// This function returns a handle that allows sending a message, or if there is no reference to the handle at all
 /// (in other words, all handles are dropped), the task would be aborted.
 pub fn spawn_coroutine<T, F, Fut>(f: F) -> CommunicationTask<T>
 where
@@ -52,8 +52,8 @@ where
     EXECUTOR.spawn_coroutine(f)
 }
 
-/// Spawns a new asynchronous task with provided context, that accepts messages to the task using [`channels`](futures::channel::mpsc).
-/// This function returns an handle that allows sending a message or if there is no reference to the handle at all
+/// Spawns a new asynchronous task with provided context that accepts messages to the task using [`channels`](futures::channel::mpsc).
+/// This function returns a handle that allows sending a message, or if there is no reference to the handle at all
 /// (in other words, all handles are dropped), the task would be aborted.
 pub fn spawn_coroutine_with_context<T, F, C, Fut>(context: C, f: F) -> CommunicationTask<T>
 where
@@ -64,7 +64,7 @@ where
 }
 
 /// Spawns a new asynchronous task that accepts messages to the task using [`channels`](futures::channel::mpsc).
-/// This function returns an handle that allows sending a message or if there is no reference to the handle at all
+/// This function returns a handle that allows sending a message, or if there is no reference to the handle at all
 /// (in other words, all handles are dropped), the task would be aborted.
 pub fn spawn_unbounded_coroutine<T, F, Fut>(f: F) -> UnboundedCommunicationTask<T>
 where
@@ -74,8 +74,8 @@ where
     EXECUTOR.spawn_unbounded_coroutine(f)
 }
 
-/// Spawns a new asynchronous task with provided context, that accepts messages to the task using [`channels`](futures::channel::mpsc).
-/// This function returns an handle that allows sending a message or if there is no reference to the handle at all
+/// Spawns a new asynchronous task with provided context that accepts messages to the task using [`channels`](futures::channel::mpsc).
+/// This function returns a handle that allows sending a message, or if there is no reference to the handle at all
 /// (in other words, all handles are dropped), the task would be aborted.
 pub fn spawn_unbounded_coroutine_with_context<T, F, C, Fut>(
     context: C,

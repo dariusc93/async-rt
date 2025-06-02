@@ -9,7 +9,7 @@ const THREADPOOL_EXECUTOR: LazyLock<ThreadPool> = LazyLock::new(|| ThreadPool::n
 
 /// Executor that uses [`futures`] [`ThreadPool`](futures::executor::ThreadPool).
 ///
-/// Note that this executor will utilize a global threadpool rather than a per-instance threadpool.
+/// Note that this executor will use a global threadpool rather than a per-instance threadpool.
 /// In other words, creating a new instance of `ThreadPoolExecutor` would continue to reuse the existing thread pool.
 #[derive(Clone, Copy, Default)]
 pub struct ThreadPoolExecutor;

@@ -87,29 +87,7 @@ mod tests {
     use std::future::Future;
     use std::pin::Pin;
     use std::task::{Context, Poll};
-
-    #[derive(Default)]
-    struct Yield {
-        yielded: bool,
-    }
-
-    impl Future for Yield {
-        type Output = ();
-
-        fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<()> {
-            if self.yielded {
-                return Poll::Ready(());
-            }
-            self.yielded = true;
-            cx.waker().wake_by_ref();
-            Poll::Pending
-        }
-    }
-
-    fn _yield() -> Yield {
-        Yield::default()
-    }
-
+    
     #[tokio::test]
     async fn test_tracker_executor() {
         let executor = TrackerExecutor::new(TokioExecutor);
@@ -117,7 +95,7 @@ mod tests {
         assert_eq!(executor.count(), 1);
         handle.abort();
         // We yield back to the runtime to allow progress to be made after aborting the task.
-        _yield().await;
+        crate::task::yield_now().await;
         assert_eq!(executor.count(), 0);
     }
 }

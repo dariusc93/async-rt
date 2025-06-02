@@ -4,6 +4,8 @@ use crate::{
 };
 use futures::channel::mpsc::{Receiver, UnboundedReceiver};
 use std::future::Future;
+use std::pin::Pin;
+use std::task::{Context, Poll};
 
 const EXECUTOR: GlobalExecutor = GlobalExecutor;
 
@@ -84,4 +86,27 @@ where
     Fut: Future<Output = ()> + Send + 'static,
 {
     EXECUTOR.spawn_unbounded_coroutine_with_context(context, f)
+}
+
+#[derive(Default)]
+struct Yield {
+    yielded: bool,
+}
+
+impl Future for Yield {
+    type Output = ();
+
+    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<()> {
+        if self.yielded {
+            return Poll::Ready(());
+        }
+        self.yielded = true;
+        cx.waker().wake_by_ref();
+        Poll::Pending
+    }
+}
+
+/// Yields execution back to the runtime
+pub fn yield_now() -> impl Future<Output = ()> {
+    Yield::default()
 }

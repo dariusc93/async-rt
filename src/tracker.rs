@@ -84,9 +84,6 @@ mod tests {
     use super::TrackerExecutor;
     use crate::rt::tokio::TokioExecutor;
     use crate::Executor;
-    use std::future::Future;
-    use std::pin::Pin;
-    use std::task::{Context, Poll};
 
     #[tokio::test]
     async fn test_tracker_executor() {

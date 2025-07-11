@@ -5,7 +5,8 @@ pub mod task;
 pub mod tracker;
 
 #[cfg(feature = "either")]
-mod either;
+pub mod either;
+pub mod rc;
 
 use std::fmt::{Debug, Formatter};
 

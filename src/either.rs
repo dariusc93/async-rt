@@ -1,4 +1,4 @@
-use crate::{Executor, JoinHandle};
+use crate::{Executor, JoinHandle, SendBound};
 use either::Either;
 use std::future::Future;
 
@@ -9,8 +9,8 @@ where
 {
     fn spawn<F>(&self, future: F) -> JoinHandle<F::Output>
     where
-        F: Future + Send + 'static,
-        F::Output: Send + 'static,
+        F: Future + SendBound + 'static,
+        F::Output: SendBound + 'static,
     {
         match self {
             Either::Left(l) => l.spawn(future),

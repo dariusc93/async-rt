@@ -1,4 +1,4 @@
-use crate::{Executor, JoinHandle};
+use crate::{Executor, JoinHandle, SendBound};
 use std::fmt::Debug;
 use std::future::Future;
 use std::pin::Pin;
@@ -69,8 +69,8 @@ impl<F> Drop for FutureCounter<F> {
 impl<E: Executor> Executor for TrackerExecutor<E> {
     fn spawn<F>(&self, future: F) -> JoinHandle<F::Output>
     where
-        F: Future + Send + 'static,
-        F::Output: Send + 'static,
+        F: Future + SendBound + 'static,
+        F::Output: SendBound + 'static,
     {
         let counter = self.counter.clone();
         let future = Box::pin(future);

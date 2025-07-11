@@ -1,4 +1,4 @@
-use crate::{Executor, InnerJoinHandle, JoinHandle};
+use crate::{Executor, InnerJoinHandle, JoinHandle, SendBound};
 use std::future::Future;
 use std::sync::Arc;
 use tokio::runtime::Runtime;
@@ -10,8 +10,8 @@ pub struct TokioExecutor;
 impl Executor for TokioExecutor {
     fn spawn<F>(&self, future: F) -> JoinHandle<F::Output>
     where
-        F: Future + Send + 'static,
-        F::Output: Send + 'static,
+        F: Future + SendBound + 'static,
+        F::Output: SendBound + 'static,
     {
         let handle = tokio::task::spawn(future);
         let inner = InnerJoinHandle::TokioHandle(handle);
@@ -52,8 +52,8 @@ impl TokioRuntimeExecutor {
 impl Executor for TokioRuntimeExecutor {
     fn spawn<F>(&self, future: F) -> JoinHandle<F::Output>
     where
-        F: Future + Send + 'static,
-        F::Output: Send + 'static,
+        F: Future + SendBound + 'static,
+        F::Output: SendBound + 'static,
     {
         let handle = self.runtime.spawn(future);
         let inner = InnerJoinHandle::TokioHandle(handle);

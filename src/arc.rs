@@ -1,4 +1,4 @@
-use crate::{Executor, JoinHandle};
+use crate::{Executor, JoinHandle, SendBound};
 use std::future::Future;
 use std::sync::Arc;
 
@@ -8,8 +8,8 @@ where
 {
     fn spawn<F>(&self, future: F) -> JoinHandle<F::Output>
     where
-        F: Future + Send + 'static,
-        F::Output: Send + 'static,
+        F: Future + SendBound + 'static,
+        F::Output: SendBound + 'static,
     {
         (**self).spawn(future)
     }

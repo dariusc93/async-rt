@@ -1,4 +1,4 @@
-use crate::{Executor, InnerJoinHandle, JoinHandle};
+use crate::{Executor, InnerJoinHandle, JoinHandle, SendBound};
 use futures::executor::ThreadPool;
 use futures::future::{AbortHandle, Abortable};
 use std::fmt::{Debug, Formatter};
@@ -23,8 +23,8 @@ impl Debug for ThreadPoolExecutor {
 impl Executor for ThreadPoolExecutor {
     fn spawn<F>(&self, future: F) -> JoinHandle<F::Output>
     where
-        F: Future + Send + 'static,
-        F::Output: Send + 'static,
+        F: Future + SendBound + 'static,
+        F::Output: SendBound + 'static,
     {
         let (abort_handle, abort_registration) = AbortHandle::new_pair();
         let future = Abortable::new(future, abort_registration);

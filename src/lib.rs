@@ -354,8 +354,8 @@ pub trait Executor {
     /// Spawns a new asynchronous task in the background, returning a Future [`JoinHandle`] for it.
     fn spawn<F>(&self, future: F) -> JoinHandle<F::Output>
     where
-        F: Future + Send + 'static,
-        F::Output: Send + 'static;
+        F: Future + SendBound + 'static,
+        F::Output: SendBound + 'static;
 
     /// Spawns a new asynchronous task in the background, returning an abortable handle that will cancel the task
     /// once the handle is dropped.
@@ -364,8 +364,8 @@ pub trait Executor {
     /// [`Executor::spawn`] or [`Executor::dispatch`] otherwise.
     fn spawn_abortable<F>(&self, future: F) -> AbortableJoinHandle<F::Output>
     where
-        F: Future + Send + 'static,
-        F::Output: Send + 'static,
+        F: Future + SendBound + 'static,
+        F::Output: SendBound + 'static,
     {
         let handle = self.spawn(future);
         handle.into()
@@ -375,8 +375,8 @@ pub trait Executor {
     /// Basically the same as [`Executor::spawn`].
     fn dispatch<F>(&self, future: F)
     where
-        F: Future + Send + 'static,
-        F::Output: Send + 'static,
+        F: Future + SendBound + 'static,
+        F::Output: SendBound + 'static,
     {
         self.spawn(future);
     }
@@ -387,7 +387,7 @@ pub trait Executor {
     fn spawn_coroutine<T, F, Fut>(&self, mut f: F) -> CommunicationTask<T>
     where
         F: FnMut(Receiver<T>) -> Fut,
-        Fut: Future<Output = ()> + Send + 'static,
+        Fut: Future<Output = ()> + SendBound + 'static,
     {
         let (tx, rx) = futures::channel::mpsc::channel(1);
         let fut = f(rx);
@@ -408,7 +408,7 @@ pub trait Executor {
     ) -> CommunicationTask<T>
     where
         F: FnMut(C, Receiver<T>) -> Fut,
-        Fut: Future<Output = ()> + Send + 'static,
+        Fut: Future<Output = ()> + SendBound + 'static,
     {
         let (tx, rx) = futures::channel::mpsc::channel(1);
         let fut = f(context, rx);
@@ -425,7 +425,7 @@ pub trait Executor {
     fn spawn_unbounded_coroutine<T, F, Fut>(&self, mut f: F) -> UnboundedCommunicationTask<T>
     where
         F: FnMut(UnboundedReceiver<T>) -> Fut,
-        Fut: Future<Output = ()> + Send + 'static,
+        Fut: Future<Output = ()> + SendBound + 'static,
     {
         let (tx, rx) = futures::channel::mpsc::unbounded();
         let fut = f(rx);
@@ -446,7 +446,7 @@ pub trait Executor {
     ) -> UnboundedCommunicationTask<T>
     where
         F: FnMut(C, UnboundedReceiver<T>) -> Fut,
-        Fut: Future<Output = ()> + Send + 'static,
+        Fut: Future<Output = ()> + SendBound + 'static,
     {
         let (tx, rx) = futures::channel::mpsc::unbounded();
         let fut = f(context, rx);
@@ -458,9 +458,22 @@ pub trait Executor {
     }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
+pub trait SendBound: Send {}
+
+#[cfg(target_arch = "wasm32")]
+pub trait SendBound {}
+
+#[cfg(target_arch = "wasm32")]
+impl<T> SendBound for T {}
+
+#[cfg(not(target_arch = "wasm32"))]
+impl<T: Send> SendBound for T {}
+
+
 #[cfg(test)]
 mod tests {
-    use crate::{Executor, InnerJoinHandle, JoinHandle};
+    use crate::{Executor, InnerJoinHandle, JoinHandle, SendBound};
     use futures::future::AbortHandle;
     use std::future::Future;
 
@@ -488,8 +501,8 @@ mod tests {
         impl Executor for FuturesExecutor {
             fn spawn<F>(&self, future: F) -> JoinHandle<F::Output>
             where
-                F: Future + Send + 'static,
-                F::Output: Send + 'static,
+                F: Future + SendBound + 'static,
+                F::Output: SendBound + 'static,
             {
                 let (abort_handle, abort_registration) = AbortHandle::new_pair();
                 let future = Abortable::new(future, abort_registration);

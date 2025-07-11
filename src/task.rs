@@ -1,7 +1,5 @@
 use crate::global::GlobalExecutor;
-use crate::{
-    AbortableJoinHandle, CommunicationTask, Executor, JoinHandle, UnboundedCommunicationTask,
-};
+use crate::{AbortableJoinHandle, CommunicationTask, Executor, JoinHandle, SendBound, UnboundedCommunicationTask};
 use futures::channel::mpsc::{Receiver, UnboundedReceiver};
 use std::future::Future;
 use std::pin::Pin;
@@ -12,8 +10,8 @@ const EXECUTOR: GlobalExecutor = GlobalExecutor;
 /// Spawns a new asynchronous task in the background, returning a Future [`JoinHandle`] for it.
 pub fn spawn<F>(future: F) -> JoinHandle<F::Output>
 where
-    F: Future + Send + 'static,
-    F::Output: Send + 'static,
+    F: Future + SendBound + 'static,
+    F::Output: SendBound + 'static,
 {
     EXECUTOR.spawn(future)
 }
@@ -25,8 +23,8 @@ where
 /// [`spawn`] or [`dispatch`] otherwise.
 pub fn spawn_abortable<F>(future: F) -> AbortableJoinHandle<F::Output>
 where
-    F: Future + Send + 'static,
-    F::Output: Send + 'static,
+    F: Future + SendBound + 'static,
+    F::Output: SendBound + 'static,
 {
     EXECUTOR.spawn_abortable(future)
 }
@@ -35,8 +33,8 @@ where
 /// Basically the same as [`spawn`].
 pub fn dispatch<F>(future: F)
 where
-    F: Future + Send + 'static,
-    F::Output: Send + 'static,
+    F: Future + SendBound + 'static,
+    F::Output: SendBound + 'static,
 {
     EXECUTOR.dispatch(future);
 }
@@ -47,7 +45,7 @@ where
 pub fn spawn_coroutine<T, F, Fut>(f: F) -> CommunicationTask<T>
 where
     F: FnMut(Receiver<T>) -> Fut,
-    Fut: Future<Output = ()> + Send + 'static,
+    Fut: Future<Output = ()> + SendBound + 'static,
 {
     EXECUTOR.spawn_coroutine(f)
 }
@@ -58,7 +56,7 @@ where
 pub fn spawn_coroutine_with_context<T, F, C, Fut>(context: C, f: F) -> CommunicationTask<T>
 where
     F: FnMut(C, Receiver<T>) -> Fut,
-    Fut: Future<Output = ()> + Send + 'static,
+    Fut: Future<Output = ()> + SendBound + 'static,
 {
     EXECUTOR.spawn_coroutine_with_context(context, f)
 }
@@ -69,7 +67,7 @@ where
 pub fn spawn_unbounded_coroutine<T, F, Fut>(f: F) -> UnboundedCommunicationTask<T>
 where
     F: FnMut(UnboundedReceiver<T>) -> Fut,
-    Fut: Future<Output = ()> + Send + 'static,
+    Fut: Future<Output = ()> + SendBound + 'static,
 {
     EXECUTOR.spawn_unbounded_coroutine(f)
 }
@@ -83,7 +81,7 @@ pub fn spawn_unbounded_coroutine_with_context<T, F, C, Fut>(
 ) -> UnboundedCommunicationTask<T>
 where
     F: FnMut(C, UnboundedReceiver<T>) -> Fut,
-    Fut: Future<Output = ()> + Send + 'static,
+    Fut: Future<Output = ()> + SendBound + 'static,
 {
     EXECUTOR.spawn_unbounded_coroutine_with_context(context, f)
 }

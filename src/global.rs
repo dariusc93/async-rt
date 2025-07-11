@@ -1,4 +1,4 @@
-use crate::{Executor, JoinHandle};
+use crate::{Executor, JoinHandle, SendBound};
 use std::future::Future;
 
 /// Executor that switches between [`TokioExecutor`](crate::rt::tokio::TokioExecutor), [`ThreadpoolExecutor`](crate::rt::threadpool::ThreadpoolExecutor) and [`WasmExecutor`](crate::rt::wasm::WasmExecutor) at compile time.
@@ -12,8 +12,8 @@ impl Executor for GlobalExecutor {
     #[cfg(all(feature = "tokio", not(target_arch = "wasm32")))]
     fn spawn<F>(&self, future: F) -> JoinHandle<F::Output>
     where
-        F: Future + Send + 'static,
-        F::Output: Send + 'static,
+        F: Future + SendBound + 'static,
+        F::Output: SendBound + 'static,
     {
         crate::rt::tokio::TokioExecutor.spawn(future)
     }
@@ -21,8 +21,8 @@ impl Executor for GlobalExecutor {
     #[cfg(all(feature = "threadpool", not(feature = "tokio")))]
     fn spawn<F>(&self, future: F) -> JoinHandle<F::Output>
     where
-        F: Future + Send + 'static,
-        F::Output: Send + 'static,
+        F: Future + SendBound + 'static,
+        F::Output: SendBound + 'static,
     {
         crate::rt::threadpool::ThreadPoolExecutor.spawn(future)
     }
@@ -30,8 +30,8 @@ impl Executor for GlobalExecutor {
     #[cfg(target_arch = "wasm32")]
     fn spawn<F>(&self, future: F) -> JoinHandle<F::Output>
     where
-        F: Future + Send + 'static,
-        F::Output: Send + 'static,
+        F: Future + SendBound + 'static,
+        F::Output: SendBound + 'static,
     {
         crate::rt::wasm::WasmExecutor.spawn(future)
     }
@@ -43,8 +43,8 @@ impl Executor for GlobalExecutor {
     ))]
     fn spawn<F>(&self, _: F) -> JoinHandle<F::Output>
     where
-        F: Future + Send + 'static,
-        F::Output: Send + 'static,
+        F: Future + SendBound + 'static,
+        F::Output: SendBound + 'static,
     {
         unreachable!()
     }

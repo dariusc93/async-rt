@@ -266,7 +266,7 @@ impl<T> Debug for CommunicationTask<T> {
 
 impl<T> CommunicationTask<T>
 where
-    T: Send + Sync + 'static,
+    T: 'static,
 {
     /// Send a message to the task
     pub async fn send(&mut self, data: T) -> std::io::Result<()> {
@@ -277,7 +277,10 @@ where
     }
 
     /// Attempts to send a message to the task, returning an error if the channel is full or closed due to the task being aborted.
-    pub fn try_send(&self, data: T) -> std::io::Result<()> {
+    pub fn try_send(&self, data: T) -> std::io::Result<()>
+    where
+        T: Send + Sync,
+    {
         self._channel_tx
             .clone()
             .try_send(data)
@@ -322,10 +325,13 @@ impl<T> Debug for UnboundedCommunicationTask<T> {
 
 impl<T> UnboundedCommunicationTask<T>
 where
-    T: Send + Sync + 'static,
+    T: 'static,
 {
     /// Send a message to task
-    pub fn send(&mut self, data: T) -> std::io::Result<()> {
+    pub fn send(&mut self, data: T) -> std::io::Result<()>
+    where
+        T: Send + Sync,
+    {
         self._channel_tx
             .unbounded_send(data)
             .map_err(std::io::Error::other)

@@ -458,9 +458,21 @@ pub trait Executor {
     }
 }
 
+pub trait ExecutorBlocking: Executor {
+    /// Spawn a thread in the background with the ability to concurrently await on the results without
+    /// blocking the executor.
+    ///
+    /// Note that there is no real way to abort the thread, and calling [`JoinHandle::abort`]
+    /// would only abort the underlining tasked that is being polled but not the thread itself.
+    fn spawn_blocking<F, R>(&self, f: F) -> JoinHandle<R>
+    where
+        F: FnOnce() -> R + Send + 'static,
+        R: Send + 'static;
+}
+
 #[cfg(test)]
 mod tests {
-    use crate::{Executor, InnerJoinHandle, JoinHandle};
+    use crate::{Executor, ExecutorBlocking, InnerJoinHandle, JoinHandle};
     use futures::future::AbortHandle;
     use std::future::Future;
 
@@ -506,6 +518,16 @@ mod tests {
                 };
 
                 JoinHandle { inner }
+            }
+        }
+
+        impl ExecutorBlocking for FuturesExecutor {
+            fn spawn_blocking<F, R>(&self, f: F) -> JoinHandle<R>
+            where
+                F: FnOnce() -> R + Send + 'static,
+                R: Send + 'static,
+            {
+                unimplemented!()
             }
         }
 

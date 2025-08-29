@@ -1,4 +1,4 @@
-use crate::{Executor, JoinHandle};
+use crate::{Executor, ExecutorBlocking, JoinHandle};
 use std::fmt::Debug;
 use std::future::Future;
 use std::pin::Pin;
@@ -76,6 +76,37 @@ impl<E: Executor> Executor for TrackerExecutor<E> {
         let future = Box::pin(future);
         let future = FutureCounter::new(future, counter);
         self.executor.spawn(future)
+    }
+}
+
+impl<E: ExecutorBlocking> ExecutorBlocking for TrackerExecutor<E> {
+    fn spawn_blocking<F, R>(&self, f: F) -> JoinHandle<R>
+    where
+        F: FnOnce() -> R + Send + 'static,
+        R: Send + 'static,
+    {
+
+        struct AtomicCounterDrop(Arc<AtomicUsize>);
+
+        impl AtomicCounterDrop {
+            pub fn new(counter: Arc<AtomicUsize>) -> Self {
+                counter.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                Self(counter)
+            }
+        }
+
+        impl Drop for AtomicCounterDrop {
+            fn drop(&mut self) {
+                self.0.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
+            }
+        }
+
+        let counter = AtomicCounterDrop::new(self.counter.clone());
+
+        self.executor.spawn_blocking(move || {
+            let _counter = counter;
+            f()
+        })
     }
 }
 

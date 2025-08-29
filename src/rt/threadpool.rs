@@ -1,4 +1,4 @@
-use crate::{Executor, InnerJoinHandle, JoinHandle};
+use crate::{Executor, ExecutorBlocking, InnerJoinHandle, JoinHandle};
 use futures::executor::ThreadPool;
 use futures::future::{AbortHandle, Abortable};
 use std::fmt::{Debug, Formatter};
@@ -41,6 +41,24 @@ impl Executor for ThreadPoolExecutor {
         };
 
         JoinHandle { inner }
+    }
+}
+
+impl ExecutorBlocking for ThreadPoolExecutor {
+    fn spawn_blocking<F, R>(&self, f: F) -> JoinHandle<R>
+    where
+        F: FnOnce() -> R + Send + 'static,
+        R: Send + 'static,
+    {
+        let fut = async move {
+            let (tx, rx) = futures::channel::oneshot::channel();
+            let handle = std::thread::spawn(move || {
+                let val = f();
+                let _ = tx.send(val);
+            });
+            rx.await
+        };
+        self.spawn(fut)
     }
 }
 

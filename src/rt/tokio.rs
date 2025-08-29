@@ -1,4 +1,4 @@
-use crate::{Executor, InnerJoinHandle, JoinHandle};
+use crate::{Executor, ExecutorBlocking, InnerJoinHandle, JoinHandle};
 use std::future::Future;
 use std::sync::Arc;
 use tokio::runtime::Runtime;
@@ -14,6 +14,18 @@ impl Executor for TokioExecutor {
         F::Output: Send + 'static,
     {
         let handle = tokio::task::spawn(future);
+        let inner = InnerJoinHandle::TokioHandle(handle);
+        JoinHandle { inner }
+    }
+}
+
+impl ExecutorBlocking for TokioExecutor {
+    fn spawn_blocking<F, R>(&self, f: F) -> JoinHandle<R>
+    where
+        F: FnOnce() -> R + Send + 'static,
+        R: Send + 'static,
+    {
+        let handle = tokio::task::spawn_blocking(f);
         let inner = InnerJoinHandle::TokioHandle(handle);
         JoinHandle { inner }
     }
@@ -56,6 +68,18 @@ impl Executor for TokioRuntimeExecutor {
         F::Output: Send + 'static,
     {
         let handle = self.runtime.spawn(future);
+        let inner = InnerJoinHandle::TokioHandle(handle);
+        JoinHandle { inner }
+    }
+}
+
+impl ExecutorBlocking for TokioRuntimeExecutor {
+    fn spawn_blocking<F, R>(&self, f: F) -> JoinHandle<R>
+    where
+        F: FnOnce() -> R + Send + 'static,
+        R: Send + 'static,
+    {
+        let handle = tokio::task::spawn_blocking(f);
         let inner = InnerJoinHandle::TokioHandle(handle);
         JoinHandle { inner }
     }

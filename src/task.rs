@@ -1,7 +1,5 @@
 use crate::global::GlobalExecutor;
-use crate::{
-    AbortableJoinHandle, CommunicationTask, Executor, JoinHandle, UnboundedCommunicationTask,
-};
+use crate::{AbortableJoinHandle, CommunicationTask, Executor, ExecutorBlocking, JoinHandle, UnboundedCommunicationTask};
 use futures::channel::mpsc::{Receiver, UnboundedReceiver};
 use std::future::Future;
 use std::pin::Pin;
@@ -16,6 +14,14 @@ where
     F::Output: Send + 'static,
 {
     EXECUTOR.spawn(future)
+}
+
+pub fn spawn_blocking<F, T>(future: F) -> JoinHandle<T>
+where
+    F: FnOnce() -> T + Send + 'static,
+    T: Send + 'static,
+{
+    EXECUTOR.spawn_blocking(future)
 }
 
 /// Spawns a new asynchronous task in the background, returning an abortable handle that will cancel the task

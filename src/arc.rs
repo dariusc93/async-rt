@@ -1,4 +1,4 @@
-use crate::{Executor, JoinHandle};
+use crate::{Executor, ExecutorBlocking, JoinHandle};
 use std::future::Future;
 use std::sync::Arc;
 
@@ -12,5 +12,18 @@ where
         F::Output: Send + 'static,
     {
         (**self).spawn(future)
+    }
+}
+
+impl<E> ExecutorBlocking for Arc<E>
+where
+    E: ExecutorBlocking,
+{
+    fn spawn_blocking<F, T>(&self, future: F) -> JoinHandle<T>
+    where
+        F: FnOnce() -> T + Send + 'static,
+        T: Send + 'static,
+    {
+        (**self).spawn_blocking(future)
     }
 }

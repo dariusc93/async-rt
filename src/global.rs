@@ -1,4 +1,4 @@
-use crate::{Executor, JoinHandle};
+use crate::{Executor, ExecutorBlocking, JoinHandle};
 use std::future::Future;
 
 /// Executor that switches between [`TokioExecutor`](crate::rt::tokio::TokioExecutor), [`ThreadpoolExecutor`](crate::rt::threadpool::ThreadpoolExecutor) and [`WasmExecutor`](crate::rt::wasm::WasmExecutor) at compile time.
@@ -49,3 +49,45 @@ impl Executor for GlobalExecutor {
         unreachable!()
     }
 }
+
+impl ExecutorBlocking for GlobalExecutor {
+    #[cfg(all(feature = "tokio", not(target_arch = "wasm32")))]
+    fn spawn_blocking<F, R>(&self, f: F) -> JoinHandle<R>
+    where
+        F: FnOnce() -> R + Send + 'static,
+        R: Send + 'static,
+    {
+        crate::rt::tokio::TokioExecutor.spawn_blocking(f)
+    }
+
+    #[cfg(all(feature = "threadpool", not(feature = "tokio")))]
+    fn spawn_blocking<F, R>(&self, f: F) -> JoinHandle<R>
+    where
+        F: FnOnce() -> R + Send + 'static,
+        R: Send + 'static,
+    {
+        crate::rt::threadpool::ThreadPoolExecutor.spawn_blocking(f)
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    fn spawn_blocking<F, R>(&self, f: F) -> JoinHandle<R>
+    where
+        F: FnOnce() -> R + Send + 'static,
+        R: Send + 'static,
+    {
+        crate::rt::wasm::WasmExecutor.spawn_blocking(f)
+    }
+
+    #[cfg(all(
+        not(feature = "threadpool"),
+        not(feature = "tokio"),
+        not(target_arch = "wasm32")
+    ))]    fn spawn_blocking<F, R>(&self, _: F) -> JoinHandle<R>
+    where
+        F: FnOnce() -> R + Send + 'static,
+        R: Send + 'static,
+    {
+        unimplemented!()
+    }
+}
+

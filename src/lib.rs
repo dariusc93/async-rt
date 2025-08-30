@@ -522,7 +522,7 @@ mod tests {
         }
 
         impl ExecutorBlocking for FuturesExecutor {
-            fn spawn_blocking<F, R>(&self, f: F) -> JoinHandle<R>
+            fn spawn_blocking<F, R>(&self, _: F) -> JoinHandle<R>
             where
                 F: FnOnce() -> R + Send + 'static,
                 R: Send + 'static,

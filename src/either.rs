@@ -20,14 +20,14 @@ where
 }
 
 impl<L, R> ExecutorBlocking for Either<L, R> where L: ExecutorBlocking, R: ExecutorBlocking {
-    fn spawn_blocking<F, R>(&self, f: F) -> JoinHandle<R>
+    fn spawn_blocking<F, T>(&self, f: F) -> JoinHandle<T>
     where
-        F: FnOnce() -> R + Send + 'static,
-        R: Send + 'static,
+        F: FnOnce() -> T + Send + 'static,
+        T: Send + 'static,
     {
         match self {
             Either::Left(l) => l.spawn_blocking(f),
-            Either::Right(r) => r.spawn_blocking(f),       
+            Either::Right(r) => r.spawn_blocking(f),
         }
     }
 }

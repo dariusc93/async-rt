@@ -52,11 +52,11 @@ impl ExecutorBlocking for ThreadPoolExecutor {
     {
         let fut = async move {
             let (tx, rx) = futures::channel::oneshot::channel();
-            let handle = std::thread::spawn(move || {
+            let _handle = std::thread::spawn(move || {
                 let val = f();
                 let _ = tx.send(val);
             });
-            rx.await
+            rx.await.expect("shouldnt drop")
         };
         self.spawn(fut)
     }
@@ -65,7 +65,7 @@ impl ExecutorBlocking for ThreadPoolExecutor {
 #[cfg(test)]
 mod tests {
     use super::ThreadPoolExecutor;
-    use crate::Executor;
+    use crate::{Executor, ExecutorBlocking};
     use futures::channel::mpsc::{Receiver, UnboundedReceiver};
 
     async fn task(tx: futures::channel::oneshot::Sender<()>) {
@@ -229,5 +229,18 @@ mod tests {
             let resp = rx.await.unwrap();
             assert_eq!(resp, "Hello");
         });
+    }
+
+    #[test]
+    fn blocking_task() {
+        let executor = ThreadPoolExecutor::default();
+
+        futures::executor::block_on(async move {
+            let result = executor.spawn_blocking(|| {
+                std::thread::sleep(std::time::Duration::from_secs(1));
+                "Hello"
+            }).await;
+            assert_eq!(result.unwrap(), "Hello");
+        })
     }
 }

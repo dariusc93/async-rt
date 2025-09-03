@@ -88,7 +88,7 @@ impl ExecutorBlocking for TokioRuntimeExecutor {
 #[cfg(test)]
 mod tests {
     use super::TokioExecutor;
-    use crate::Executor;
+    use crate::{Executor, ExecutorBlocking};
     use futures::channel::mpsc::{Receiver, UnboundedReceiver};
 
     #[tokio::test]
@@ -244,6 +244,18 @@ mod tests {
         let msg = Message::Get(tx);
         task.send(msg).unwrap();
         let resp = rx.await.unwrap();
+        assert_eq!(resp, "Hello");
+    }
+
+    #[tokio::test]
+    async fn blocking_task() {
+        let executor = TokioExecutor;
+
+        let task = executor.spawn_blocking(|| {
+            std::thread::sleep(std::time::Duration::from_secs(1));
+            "Hello"
+        });
+        let resp = task.await.unwrap();
         assert_eq!(resp, "Hello");
     }
 }

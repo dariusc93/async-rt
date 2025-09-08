@@ -237,7 +237,7 @@ mod tests {
 
         futures::executor::block_on(async move {
             let result = executor.spawn_blocking(|| {
-                std::thread::sleep(std::time::Duration::from_secs(1));
+                std::thread::sleep(std::time::Duration::from_millis(100));
                 "Hello"
             }).await;
             assert_eq!(result.unwrap(), "Hello");

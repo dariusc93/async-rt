@@ -79,7 +79,7 @@ impl ExecutorBlocking for TokioRuntimeExecutor {
         F: FnOnce() -> R + Send + 'static,
         R: Send + 'static,
     {
-        let handle = tokio::task::spawn_blocking(f);
+        let handle = self.runtime.spawn_blocking(f);
         let inner = InnerJoinHandle::TokioHandle(handle);
         JoinHandle { inner }
     }

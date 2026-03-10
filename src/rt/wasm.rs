@@ -1,4 +1,4 @@
-use crate::{Executor, InnerJoinHandle, JoinHandle};
+use crate::{Executor, ExecutorBlocking, InnerJoinHandle, JoinHandle};
 use futures::future::{AbortHandle, Abortable};
 use std::future::Future;
 
@@ -29,7 +29,7 @@ impl Executor for WasmExecutor {
     }
 }
 
-impl Executor for WasmExecutor {
+impl ExecutorBlocking for WasmExecutor {
     fn spawn_blocking<F, R>(&self, f: F) -> JoinHandle<R>
     where
         F: FnOnce() -> R + Send + 'static,
@@ -42,7 +42,7 @@ impl Executor for WasmExecutor {
             let val = f();
             // we yield back to the executor, so it can make some progress before we return the value here and allow other tasks to continue.
             // not exactly needed
-            self::yield_now().await;
+            crate::task::yield_now().await;
             val
         };
         self.spawn(fut)

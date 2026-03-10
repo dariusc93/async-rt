@@ -5,7 +5,7 @@ use std::fmt::{Debug, Formatter};
 use std::future::Future;
 use std::sync::LazyLock;
 
-const THREADPOOL_EXECUTOR: LazyLock<ThreadPool> = LazyLock::new(|| ThreadPool::new().unwrap());
+static THREADPOOL_EXECUTOR: LazyLock<ThreadPool> = LazyLock::new(|| ThreadPool::new().unwrap());
 
 /// Executor that uses [`futures`] [`ThreadPool`](futures::executor::ThreadPool).
 ///

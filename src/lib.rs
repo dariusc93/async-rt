@@ -384,12 +384,23 @@ pub trait Executor {
     /// Spawns a new asynchronous task that accepts messages to the task using [`channels`](futures::channel::mpsc).
     /// This function returns a handle that allows sending a message, or if there is no reference to the handle at all
     /// (in other words, all handles are dropped), the task would be aborted.
-    fn spawn_coroutine<T, F, Fut>(&self, mut f: F) -> CommunicationTask<T>
+    fn spawn_coroutine<T, F, Fut>(&self, f: F) -> CommunicationTask<T>
     where
         F: FnMut(Receiver<T>) -> Fut,
         Fut: Future<Output = ()> + Send + 'static,
     {
-        let (tx, rx) = futures::channel::mpsc::channel(1);
+        Self::spawn_coroutine_with_buffer(self, 1, f)
+    }
+
+    /// Spawns a new asynchronous task with a set channel buffer that accepts messages to the task using [`channels`](futures::channel::mpsc).
+    /// This function returns a handle that allows sending a message, or if there is no reference to the handle at all
+    /// (in other words, all handles are dropped), the task would be aborted.
+    fn spawn_coroutine_with_buffer<T, F, Fut>(&self, buffer: usize, mut f: F) -> CommunicationTask<T>
+    where
+        F: FnMut(Receiver<T>) -> Fut,
+        Fut: Future<Output = ()> + Send + 'static,
+    {
+        let (tx, rx) = futures::channel::mpsc::channel(buffer);
         let fut = f(rx);
         let _task_handle = self.spawn_abortable(fut);
         CommunicationTask {
@@ -404,13 +415,29 @@ pub trait Executor {
     fn spawn_coroutine_with_context<T, F, C, Fut>(
         &self,
         context: C,
+        f: F,
+    ) -> CommunicationTask<T>
+    where
+        F: FnMut(C, Receiver<T>) -> Fut,
+        Fut: Future<Output = ()> + Send + 'static,
+    {
+        Self::spawn_coroutine_with_buffer_and_context(self, context, 1, f)
+    }
+
+    /// Spawns a new asynchronous task with a set channel buffer and provided context that accepts messages to the task using [`channels`](futures::channel::mpsc).
+    /// This function returns a handle that allows sending a message, or if there is no reference to the handle at all
+    /// (in other words, all handles are dropped), the task would be aborted.
+    fn spawn_coroutine_with_buffer_and_context<T, F, C, Fut>(
+        &self,
+        context: C,
+        buffer: usize,
         mut f: F,
     ) -> CommunicationTask<T>
     where
         F: FnMut(C, Receiver<T>) -> Fut,
         Fut: Future<Output = ()> + Send + 'static,
     {
-        let (tx, rx) = futures::channel::mpsc::channel(1);
+        let (tx, rx) = futures::channel::mpsc::channel(buffer);
         let fut = f(context, rx);
         let _task_handle = self.spawn_abortable(fut);
         CommunicationTask {

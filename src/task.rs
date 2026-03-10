@@ -58,6 +58,17 @@ where
     EXECUTOR.spawn_coroutine(f)
 }
 
+/// Spawns a new asynchronous task with a set channel buffer that accepts messages to the task using [`channels`](futures::channel::mpsc).
+/// This function returns a handle that allows sending a message, or if there is no reference to the handle at all
+/// (in other words, all handles are dropped), the task would be aborted.
+pub fn spawn_coroutine_with_buffer<T, F, Fut>(buffer: usize, f: F) -> CommunicationTask<T>
+where
+    F: FnMut(Receiver<T>) -> Fut,
+    Fut: Future<Output = ()> + Send + 'static,
+{
+    EXECUTOR.spawn_coroutine_with_buffer(buffer, f)
+}
+
 /// Spawns a new asynchronous task with provided context that accepts messages to the task using [`channels`](futures::channel::mpsc).
 /// This function returns a handle that allows sending a message, or if there is no reference to the handle at all
 /// (in other words, all handles are dropped), the task would be aborted.
@@ -67,6 +78,17 @@ where
     Fut: Future<Output = ()> + Send + 'static,
 {
     EXECUTOR.spawn_coroutine_with_context(context, f)
+}
+
+/// Spawns a new asynchronous task with a set channel buffer and provided context that accepts messages to the task using [`channels`](futures::channel::mpsc).
+/// This function returns a handle that allows sending a message, or if there is no reference to the handle at all
+/// (in other words, all handles are dropped), the task would be aborted.
+pub fn spawn_coroutine_with_buffer_and_context<T, F, C, Fut>(context: C, buffer: usize, f: F) -> CommunicationTask<T>
+where
+    F: FnMut(C, Receiver<T>) -> Fut,
+    Fut: Future<Output = ()> + Send + 'static,
+{
+    EXECUTOR.spawn_coroutine_with_buffer_and_context(context, buffer, f)
 }
 
 /// Spawns a new asynchronous task that accepts messages to the task using [`channels`](futures::channel::mpsc).

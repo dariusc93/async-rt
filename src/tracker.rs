@@ -33,7 +33,7 @@ impl<E: Executor> TrackerExecutor<E> {
 
     /// Number of active tasks.
     pub fn count(&self) -> usize {
-        self.counter.load(std::sync::atomic::Ordering::SeqCst)
+        self.counter.load(std::sync::atomic::Ordering::Relaxed)
     }
 }
 
@@ -44,7 +44,7 @@ struct FutureCounter<F> {
 
 impl<F> FutureCounter<F> {
     pub fn new(future: F, counter: Arc<AtomicUsize>) -> Self {
-        counter.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        counter.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         Self { future, counter }
     }
 }

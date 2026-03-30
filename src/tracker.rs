@@ -62,7 +62,7 @@ where
 impl<F> Drop for FutureCounter<F> {
     fn drop(&mut self) {
         self.counter
-            .fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
+            .fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
     }
 }
 
@@ -85,19 +85,18 @@ impl<E: ExecutorBlocking> ExecutorBlocking for TrackerExecutor<E> {
         F: FnOnce() -> R + Send + 'static,
         R: Send + 'static,
     {
-
         struct AtomicCounterDrop(Arc<AtomicUsize>);
 
         impl AtomicCounterDrop {
             pub fn new(counter: Arc<AtomicUsize>) -> Self {
-                counter.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                counter.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                 Self(counter)
             }
         }
 
         impl Drop for AtomicCounterDrop {
             fn drop(&mut self) {
-                self.0.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
+                self.0.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
             }
         }
 

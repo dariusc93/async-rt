@@ -15,7 +15,10 @@ where
     }
 }
 
-impl<E> ExecutorBlocking for Rc<E> where E: ExecutorBlocking {
+impl<E> ExecutorBlocking for Rc<E>
+where
+    E: ExecutorBlocking,
+{
     fn spawn_blocking<F, R>(&self, f: F) -> JoinHandle<R>
     where
         F: FnOnce() -> R + Send + 'static,

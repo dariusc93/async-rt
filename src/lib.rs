@@ -395,7 +395,11 @@ pub trait Executor {
     /// Spawns a new asynchronous task with a set channel buffer that accepts messages to the task using [`channels`](futures::channel::mpsc).
     /// This function returns a handle that allows sending a message, or if there is no reference to the handle at all
     /// (in other words, all handles are dropped), the task would be aborted.
-    fn spawn_coroutine_with_buffer<T, F, Fut>(&self, buffer: usize, mut f: F) -> CommunicationTask<T>
+    fn spawn_coroutine_with_buffer<T, F, Fut>(
+        &self,
+        buffer: usize,
+        mut f: F,
+    ) -> CommunicationTask<T>
     where
         F: FnMut(Receiver<T>) -> Fut,
         Fut: Future<Output = ()> + Send + 'static,
@@ -412,11 +416,7 @@ pub trait Executor {
     /// Spawns a new asynchronous task with provided context that accepts messages to the task using [`channels`](futures::channel::mpsc).
     /// This function returns a handle that allows sending a message, or if there is no reference to the handle at all
     /// (in other words, all handles are dropped), the task would be aborted.
-    fn spawn_coroutine_with_context<T, F, C, Fut>(
-        &self,
-        context: C,
-        f: F,
-    ) -> CommunicationTask<T>
+    fn spawn_coroutine_with_context<T, F, C, Fut>(&self, context: C, f: F) -> CommunicationTask<T>
     where
         F: FnMut(C, Receiver<T>) -> Fut,
         Fut: Future<Output = ()> + Send + 'static,

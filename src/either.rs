@@ -19,7 +19,11 @@ where
     }
 }
 
-impl<L, R> ExecutorBlocking for Either<L, R> where L: ExecutorBlocking, R: ExecutorBlocking {
+impl<L, R> ExecutorBlocking for Either<L, R>
+where
+    L: ExecutorBlocking,
+    R: ExecutorBlocking,
+{
     fn spawn_blocking<F, T>(&self, f: F) -> JoinHandle<T>
     where
         F: FnOnce() -> T + Send + 'static,

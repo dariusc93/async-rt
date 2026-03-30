@@ -82,7 +82,8 @@ impl ExecutorBlocking for GlobalExecutor {
         not(feature = "threadpool"),
         not(feature = "tokio"),
         not(target_arch = "wasm32")
-    ))]    fn spawn_blocking<F, R>(&self, _: F) -> JoinHandle<R>
+    ))]
+    fn spawn_blocking<F, R>(&self, _: F) -> JoinHandle<R>
     where
         F: FnOnce() -> R + Send + 'static,
         R: Send + 'static,
@@ -90,4 +91,3 @@ impl ExecutorBlocking for GlobalExecutor {
         unimplemented!()
     }
 }
-

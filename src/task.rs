@@ -1,5 +1,8 @@
 use crate::global::GlobalExecutor;
-use crate::{AbortableJoinHandle, CommunicationTask, Executor, ExecutorBlocking, JoinHandle, UnboundedCommunicationTask};
+use crate::{
+    AbortableJoinHandle, CommunicationTask, Executor, ExecutorBlocking, JoinHandle,
+    UnboundedCommunicationTask,
+};
 use futures::channel::mpsc::{Receiver, UnboundedReceiver};
 use std::future::Future;
 use std::pin::Pin;
@@ -83,7 +86,11 @@ where
 /// Spawns a new asynchronous task with a set channel buffer and provided context that accepts messages to the task using [`channels`](futures::channel::mpsc).
 /// This function returns a handle that allows sending a message, or if there is no reference to the handle at all
 /// (in other words, all handles are dropped), the task would be aborted.
-pub fn spawn_coroutine_with_buffer_and_context<T, F, C, Fut>(context: C, buffer: usize, f: F) -> CommunicationTask<T>
+pub fn spawn_coroutine_with_buffer_and_context<T, F, C, Fut>(
+    context: C,
+    buffer: usize,
+    f: F,
+) -> CommunicationTask<T>
 where
     F: FnMut(C, Receiver<T>) -> Fut,
     Fut: Future<Output = ()> + Send + 'static,

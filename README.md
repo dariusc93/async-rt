@@ -8,7 +8,7 @@ conditions are met (i.e tokio if the feature is enabled and its a non-wasm32 arc
 
 ## MSRV
 
-The minimum supported rust version is 1.83, which can be changed in the future. There is no guarantee that this library will work on older versions of rust.
+The minimum supported rust version is 1.85, which can be changed in the future. There is no guarantee that this library will work on older versions of rust.
 
 ## License
 

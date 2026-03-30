@@ -10,9 +10,9 @@ pub mod rc;
 
 use std::fmt::{Debug, Formatter};
 
+use futures::SinkExt;
 use futures::channel::mpsc::{Receiver, UnboundedReceiver};
 use futures::future::{AbortHandle, Aborted};
-use futures::SinkExt;
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;

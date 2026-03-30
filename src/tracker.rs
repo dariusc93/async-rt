@@ -2,8 +2,8 @@ use crate::{Executor, ExecutorBlocking, JoinHandle};
 use std::fmt::Debug;
 use std::future::Future;
 use std::pin::Pin;
-use std::sync::atomic::AtomicUsize;
 use std::sync::Arc;
+use std::sync::atomic::AtomicUsize;
 use std::task::{Context, Poll};
 
 /// Track running tasks.
@@ -112,8 +112,8 @@ impl<E: ExecutorBlocking> ExecutorBlocking for TrackerExecutor<E> {
 #[cfg(test)]
 mod tests {
     use super::TrackerExecutor;
-    use crate::rt::tokio::TokioExecutor;
     use crate::Executor;
+    use crate::rt::tokio::TokioExecutor;
 
     #[tokio::test]
     async fn test_tracker_executor() {

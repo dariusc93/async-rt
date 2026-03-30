@@ -219,7 +219,9 @@ impl<T> AbortableJoinHandle<T> {
     pub unsafe fn replace(&mut self, inner: AbortableJoinHandle<T>) {
         let current_handle = &mut *self.handle.inner.lock();
         let inner_handle = &mut *inner.handle.inner.lock();
-        current_handle.replace_in_place(inner_handle);
+        unsafe {
+            current_handle.replace_in_place(inner_handle);
+        }
     }
 }
 

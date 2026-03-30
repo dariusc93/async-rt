@@ -247,9 +247,6 @@ pub struct CommunicationTask<T> {
     _channel_tx: futures::channel::mpsc::Sender<T>,
 }
 
-unsafe impl<T: Send> Send for CommunicationTask<T> {}
-unsafe impl<T: Send> Sync for CommunicationTask<T> {}
-
 impl<T> Clone for CommunicationTask<T> {
     fn clone(&self) -> Self {
         CommunicationTask {
@@ -305,9 +302,6 @@ pub struct UnboundedCommunicationTask<T> {
     _task_handle: AbortableJoinHandle<()>,
     _channel_tx: futures::channel::mpsc::UnboundedSender<T>,
 }
-
-unsafe impl<T: Send> Send for UnboundedCommunicationTask<T> {}
-unsafe impl<T: Send> Sync for UnboundedCommunicationTask<T> {}
 
 impl<T> Clone for UnboundedCommunicationTask<T> {
     fn clone(&self) -> Self {

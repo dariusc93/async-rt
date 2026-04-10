@@ -7,6 +7,7 @@ pub mod tracker;
 #[cfg(feature = "either")]
 pub mod either;
 pub mod rc;
+pub(crate) mod scoped;
 
 use std::fmt::{Debug, Formatter};
 
@@ -17,6 +18,8 @@ use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll};
+
+pub use crate::scoped::{JoinError as ScopedJoinError, Scope, ScopedJoinHandle};
 
 #[cfg(all(
     not(feature = "threadpool"),
@@ -466,6 +469,43 @@ pub trait Executor {
             _task_handle,
             _channel_tx: tx,
         }
+    }
+
+    /// Create a structured-concurrency scope in which tasks may be spawned
+    /// that borrow from the enclosing stack frame.
+    ///
+    /// Unlike [`Executor::spawn`], tasks spawned on the [`Scope`] are driven
+    /// cooperatively by the returned future — they make progress whenever
+    /// the scope is polled — so they may borrow any data that outlives the
+    /// `'env` lifetime. Every task is either completed or cancelled before
+    /// `scope` returns, so borrows never outlive the stack frame.
+    ///
+    /// This is the async analogue of [`std::thread::scope`].
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// # async fn run() {
+    /// use async_rt::Executor;
+    /// use async_rt::rt::tokio::TokioExecutor;
+    ///
+    /// let executor = TokioExecutor;
+    /// let data = vec![1, 2, 3, 4];
+    /// let sum = executor
+    ///     .scope(async |s| {
+    ///         let a = s.spawn(async { data[0] + data[1] });
+    ///         let b = s.spawn(async { data[2] + data[3] });
+    ///         a.await.unwrap() + b.await.unwrap()
+    ///     })
+    ///     .await;
+    /// assert_eq!(sum, 10);
+    /// # }
+    /// ```
+    fn scope<'env, F, T>(&self, f: F) -> impl Future<Output = T>
+    where
+        F: AsyncFnOnce(&Scope<'env>) -> T,
+    {
+        scoped::scope(f)
     }
 }
 

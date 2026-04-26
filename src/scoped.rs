@@ -30,14 +30,14 @@ use core::task::{Context, Poll};
 /// A scope within which tasks can be spawned that borrow from the enclosing
 /// stack frame.
 pub struct Scope<'env> {
-    tasks: Mutex<FuturesUnordered<BoxFuture<'env, ()>>>,
+    inbox: Mutex<Vec<BoxFuture<'env, ()>>>,
     _env: PhantomData<&'env mut &'env ()>,
 }
 
 impl<'env> Scope<'env> {
     fn new() -> Self {
         Self {
-            tasks: Mutex::new(FuturesUnordered::new()),
+            inbox: Mutex::new(Vec::new()),
             _env: PhantomData,
         }
     }
@@ -61,7 +61,7 @@ impl<'env> Scope<'env> {
         }
         .boxed();
 
-        self.tasks.lock().push(wrapped);
+        self.inbox.lock().push(wrapped);
 
         ScopedJoinHandle { rx }
     }
@@ -85,7 +85,7 @@ impl<'env> Scope<'env> {
             let _ = tx.send(val);
         }
         .boxed();
-        self.tasks.lock().push(wrapped);
+        self.inbox.lock().push(wrapped);
 
         let join = JoinHandle {
             inner: InnerJoinHandle::CustomHandle {
@@ -198,22 +198,32 @@ impl<'env> Scope<'env> {
         UnboundedCommunicationTask::new(task_handle, tx)
     }
 
-    /// Drive the spawned task set, returning `(made_progress, empty)`.
-    ///
-    /// Polls tasks in a loop until no more immediate progress can be made.
-    /// `made_progress` is `true` if at least one task completed this call;
-    /// `empty` is `true` if no tasks remain after polling.
-    fn drive_tasks(&self, cx: &mut Context<'_>) -> (bool, bool) {
-        let mut made_progress = false;
-        loop {
-            let mut tasks = self.tasks.lock();
-            match tasks.poll_next_unpin(cx) {
-                Poll::Ready(Some(())) => {
-                    made_progress = true;
-                    continue;
+}
+
+/// Drive a scope once: absorb any inbox entries, then poll the active
+/// set until no more immediate progress can be made.
+fn drive_scope<'env>(
+    active: &mut FuturesUnordered<BoxFuture<'env, ()>>,
+    scope: &Scope<'env>,
+    cx: &mut Context<'_>,
+) -> (bool, bool) {
+    let mut made_progress = false;
+    loop {
+        // Absorb any newly-spawned tasks into the active set. Take the
+        // Vec out with mem::take so the lock is held just long enough
+        // to swap, never across a poll.
+        let incoming = std::mem::take(&mut *scope.inbox.lock());
+        active.extend(incoming);
+        match active.poll_next_unpin(cx) {
+            Poll::Ready(Some(())) => made_progress = true,
+            Poll::Ready(None) => return (made_progress, true),
+            Poll::Pending => {
+                // A task may have pushed new futures to the inbox
+                // during its own poll, so it doesn't return Pending until
+                // we've had a chance to poll them.
+                if scope.inbox.lock().is_empty() {
+                    return (made_progress, false);
                 }
-                Poll::Ready(None) => return (made_progress, true),
-                Poll::Pending => return (made_progress, false),
             }
         }
     }
@@ -291,6 +301,11 @@ where
     F: AsyncFnOnce(&Scope<'env>) -> T,
 {
     let scope: Scope<'env> = Scope::new();
+    // The active task set lives on the driver, not inside `Scope`. Only
+    // `drive_scope` touches it, so no lock guards it, and the inbox mutex
+    // is enough for the spawn side.
+    let mut active: FuturesUnordered<BoxFuture<'env, ()>> = FuturesUnordered::new();
+
     let result = {
         let user_fut = f(&scope);
         let mut user_fut = std::pin::pin!(user_fut);
@@ -300,7 +315,7 @@ where
                 if let Poll::Ready(r) = user_fut.as_mut().poll(cx) {
                     return Poll::Ready(r);
                 }
-                let (made_progress, _empty) = scope.drive_tasks(cx);
+                let (made_progress, _empty) = drive_scope(&mut active, &scope, cx);
                 if !made_progress {
                     return Poll::Pending;
                 }
@@ -312,7 +327,7 @@ where
     // Drain any remaining spawned tasks before the scope goes away, so
     // every borrow of the data is released before this frame unwinds.
     poll_fn(|cx| {
-        let (_made_progress, empty) = scope.drive_tasks(cx);
+        let (_made_progress, empty) = drive_scope(&mut active, &scope, cx);
         if empty {
             Poll::Ready(())
         } else {
@@ -325,7 +340,7 @@ where
 }
 
 /// An [`Executor`] wrapper that tracks spawned tasks so they can be
-/// cancelled when a scope ends.
+/// canceled when a scope ends.
 ///
 /// `ScopeExecutor` itself implements [`Executor`], so it can be passed to
 /// any code that takes `Executor` every spawn performed through
@@ -428,7 +443,7 @@ where
 ///         a.await.unwrap() + b.await.unwrap()
 ///     })
 ///     .await;
-/// assert_eq!(total, 10);
+///     assert_eq!(total, 10);
 /// # }
 /// ```
 pub async fn executor_scope<'scope, E, F, T>(executor: &'scope E, f: F) -> T

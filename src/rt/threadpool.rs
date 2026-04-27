@@ -114,6 +114,35 @@ mod tests {
     }
 
     #[test]
+    fn task_coroutine_with_receiver() {
+        use futures::stream::StreamExt;
+        let executor = ThreadPoolExecutor::default();
+
+        enum Message {
+            Send(String, futures::channel::oneshot::Sender<String>),
+        }
+
+        let mut task =
+            executor.spawn_coroutine_with_receiver(|mut rx: Receiver<Message>| async move {
+                while let Some(msg) = rx.next().await {
+                    match msg {
+                        Message::Send(msg, sender) => {
+                            sender.send(msg).unwrap();
+                        }
+                    }
+                }
+            });
+
+        let (tx, rx) = futures::channel::oneshot::channel::<String>();
+        let msg = Message::Send("Hello".into(), tx);
+        futures::executor::block_on(async move {
+            task.send(msg).await.unwrap();
+            let resp = rx.await.unwrap();
+            assert_eq!(resp, "Hello");
+        });
+    }
+
+    #[test]
     fn task_coroutine_with_receiver_and_context() {
         use futures::stream::StreamExt;
         let executor = ThreadPoolExecutor::default();
@@ -171,6 +200,36 @@ mod tests {
                 }
             }
         });
+
+        let (tx, rx) = futures::channel::oneshot::channel::<String>();
+        let msg = Message::Send("Hello".into(), tx);
+        futures::executor::block_on(async move {
+            task.send(msg).unwrap();
+            let resp = rx.await.unwrap();
+            assert_eq!(resp, "Hello");
+        });
+    }
+
+    #[test]
+    fn task_unbounded_coroutine_with_receiver() {
+        use futures::stream::StreamExt;
+        let executor = ThreadPoolExecutor::default();
+
+        enum Message {
+            Send(String, futures::channel::oneshot::Sender<String>),
+        }
+
+        let mut task = executor.spawn_unbounded_coroutine_with_receiver(
+            |mut rx: UnboundedReceiver<Message>| async move {
+                while let Some(msg) = rx.next().await {
+                    match msg {
+                        Message::Send(msg, sender) => {
+                            sender.send(msg).unwrap();
+                        }
+                    }
+                }
+            },
+        );
 
         let (tx, rx) = futures::channel::oneshot::channel::<String>();
         let msg = Message::Send("Hello".into(), tx);

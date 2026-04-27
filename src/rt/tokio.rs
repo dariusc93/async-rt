@@ -112,19 +112,16 @@ mod tests {
 
     #[tokio::test]
     async fn task_coroutine() {
-        use futures::stream::StreamExt;
         let executor = TokioExecutor;
 
         enum Message {
             Send(String, futures::channel::oneshot::Sender<String>),
         }
 
-        let mut task = executor.spawn_coroutine(|mut rx: Receiver<Message>| async move {
-            while let Some(msg) = rx.next().await {
-                match msg {
-                    Message::Send(msg, sender) => {
-                        sender.send(msg).unwrap();
-                    }
+        let mut task = executor.spawn_coroutine(|msg: Message| async move {
+            match msg {
+                Message::Send(msg, sender) => {
+                    sender.send(msg).unwrap();
                 }
             }
         });
@@ -138,7 +135,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn task_coroutine_with_context() {
+    async fn task_coroutine_with_receiver_and_context() {
         use futures::stream::StreamExt;
         let executor = TokioExecutor;
 
@@ -152,7 +149,7 @@ mod tests {
             Get(futures::channel::oneshot::Sender<String>),
         }
 
-        let mut task = executor.spawn_coroutine_with_context(
+        let mut task = executor.spawn_coroutine_with_receiver_and_context(
             State::default(),
             |mut state, mut rx: Receiver<Message>| async move {
                 while let Some(msg) = rx.next().await {
@@ -180,23 +177,19 @@ mod tests {
 
     #[tokio::test]
     async fn task_unbounded_coroutine() {
-        use futures::stream::StreamExt;
         let executor = TokioExecutor;
 
         enum Message {
             Send(String, futures::channel::oneshot::Sender<String>),
         }
 
-        let mut task =
-            executor.spawn_unbounded_coroutine(|mut rx: UnboundedReceiver<Message>| async move {
-                while let Some(msg) = rx.next().await {
-                    match msg {
-                        Message::Send(msg, sender) => {
-                            sender.send(msg).unwrap();
-                        }
-                    }
+        let mut task = executor.spawn_unbounded_coroutine(|msg: Message| async move {
+            match msg {
+                Message::Send(msg, sender) => {
+                    sender.send(msg).unwrap();
                 }
-            });
+            }
+        });
 
         let (tx, rx) = futures::channel::oneshot::channel::<String>();
         let msg = Message::Send("Hello".into(), tx);
@@ -207,7 +200,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn task_unbounded_coroutine_with_context() {
+    async fn task_unbounded_coroutine_with_receiver_and_context() {
         use futures::stream::StreamExt;
         let executor = TokioExecutor;
 
@@ -221,7 +214,7 @@ mod tests {
             Get(futures::channel::oneshot::Sender<String>),
         }
 
-        let mut task = executor.spawn_unbounded_coroutine_with_context(
+        let mut task = executor.spawn_unbounded_coroutine_with_receiver_and_context(
             State::default(),
             |mut state, mut rx: UnboundedReceiver<Message>| async move {
                 while let Some(msg) = rx.next().await {

@@ -50,43 +50,135 @@ where
     EXECUTOR.dispatch(future);
 }
 
-/// Spawns a new asynchronous task that accepts messages to the task using [`channels`](futures::channel::mpsc).
+/// Spawns a new asynchronous task that accepts messages to the task.
 /// This function returns a handle that allows sending a message, or if there is no reference to the handle at all
 /// (in other words, all handles are dropped), the task would be aborted.
 pub fn spawn_coroutine<T, F, Fut>(f: F) -> CommunicationTask<T>
 where
+    F: FnMut(T) -> Fut + Send + 'static,
+    Fut: Future<Output = ()> + Send + 'static,
+    T: Send + 'static,
+{
+    EXECUTOR.spawn_coroutine(f)
+}
+
+/// Spawns a new asynchronous task that accepts messages to the task with a set buffer.
+/// This function returns a handle that allows sending a message, or if there is no reference to the handle at all
+/// (in other words, all handles are dropped), the task would be aborted.
+pub fn spawn_coroutine_with_buffer<T, F, Fut>(buffer: usize, f: F) -> CommunicationTask<T>
+where
+    F: FnMut(T) -> Fut + Send + 'static,
+    Fut: Future<Output = ()> + Send + 'static,
+    T: Send + 'static,
+{
+    EXECUTOR.spawn_coroutine_with_buffer(buffer, f)
+}
+
+/// Spawns a new asynchronous task that accepts unbounded messages to the task.
+/// This function returns a handle that allows sending a message, or if there is no reference to the handle at all
+/// (in other words, all handles are dropped), the task would be aborted.
+pub fn spawn_unbounded_coroutine<T, F, Fut>(f: F) -> UnboundedCommunicationTask<T>
+where
+    F: FnMut(T) -> Fut + Send + 'static,
+    Fut: Future<Output = ()> + Send + 'static,
+    T: Send + 'static,
+{
+    EXECUTOR.spawn_unbounded_coroutine(f)
+}
+
+/// Spawns a new asynchronous task with provided context that accepts messages to the task.
+/// This function returns a handle that allows sending a message, or if there is no reference to the handle at all
+/// (in other words, all handles are dropped), the task would be aborted.
+///
+/// # Note
+/// If state must be borrowed across awaits,
+/// use [`spawn_coroutine_with_receiver_and_context`].
+pub fn spawn_coroutine_with_context<T, C, F, Fut>(context: C, f: F) -> CommunicationTask<T>
+where
+    F: FnMut(&mut C, T) -> Fut + Send + 'static,
+    Fut: Future<Output = ()> + Send + 'static,
+    C: Send + 'static,
+    T: Send + 'static,
+{
+    EXECUTOR.spawn_coroutine_with_context(context, f)
+}
+
+/// Spawns a new asynchronous task with provided context that accepts messages to the task with a set buffer.
+/// This function returns a handle that allows sending a message, or if there is no reference to the handle at all
+/// (in other words, all handles are dropped), the task would be aborted.
+pub fn spawn_coroutine_with_buffer_and_context<T, C, F, Fut>(
+    context: C,
+    buffer: usize,
+    f: F,
+) -> CommunicationTask<T>
+where
+    F: FnMut(&mut C, T) -> Fut + Send + 'static,
+    Fut: Future<Output = ()> + Send + 'static,
+    C: Send + 'static,
+    T: Send + 'static,
+{
+    EXECUTOR.spawn_coroutine_with_buffer_and_context(context, buffer, f)
+}
+
+/// Spawns a new asynchronous task with provided context that accepts unbounded messages to the task.
+/// This function returns a handle that allows sending a message, or if there is no reference to the handle at all
+/// (in other words, all handles are dropped), the task would be aborted.
+pub fn spawn_unbounded_coroutine_with_context<T, C, F, Fut>(
+    context: C,
+    f: F,
+) -> UnboundedCommunicationTask<T>
+where
+    F: FnMut(&mut C, T) -> Fut + Send + 'static,
+    Fut: Future<Output = ()> + Send + 'static,
+    C: Send + 'static,
+    T: Send + 'static,
+{
+    EXECUTOR.spawn_unbounded_coroutine_with_context(context, f)
+}
+
+/// Spawns a new asynchronous task that accepts messages to the task using [`channels`](futures::channel::mpsc).
+/// This function returns a handle that allows sending a message, or if there is no reference to the handle at all
+/// (in other words, all handles are dropped), the task would be aborted.
+pub fn spawn_coroutine_with_receiver<T, F, Fut>(f: F) -> CommunicationTask<T>
+where
     F: FnMut(Receiver<T>) -> Fut,
     Fut: Future<Output = ()> + Send + 'static,
 {
-    EXECUTOR.spawn_coroutine(f)
+    EXECUTOR.spawn_coroutine_with_receiver(f)
 }
 
 /// Spawns a new asynchronous task with a set channel buffer that accepts messages to the task using [`channels`](futures::channel::mpsc).
 /// This function returns a handle that allows sending a message, or if there is no reference to the handle at all
 /// (in other words, all handles are dropped), the task would be aborted.
-pub fn spawn_coroutine_with_buffer<T, F, Fut>(buffer: usize, f: F) -> CommunicationTask<T>
+pub fn spawn_coroutine_with_receiver_and_buffer<T, F, Fut>(
+    buffer: usize,
+    f: F,
+) -> CommunicationTask<T>
 where
     F: FnMut(Receiver<T>) -> Fut,
     Fut: Future<Output = ()> + Send + 'static,
 {
-    EXECUTOR.spawn_coroutine_with_buffer(buffer, f)
+    EXECUTOR.spawn_coroutine_with_receiver_and_buffer(buffer, f)
 }
 
 /// Spawns a new asynchronous task with provided context that accepts messages to the task using [`channels`](futures::channel::mpsc).
 /// This function returns a handle that allows sending a message, or if there is no reference to the handle at all
 /// (in other words, all handles are dropped), the task would be aborted.
-pub fn spawn_coroutine_with_context<T, F, C, Fut>(context: C, f: F) -> CommunicationTask<T>
+pub fn spawn_coroutine_with_receiver_and_context<T, F, C, Fut>(
+    context: C,
+    f: F,
+) -> CommunicationTask<T>
 where
     F: FnMut(C, Receiver<T>) -> Fut,
     Fut: Future<Output = ()> + Send + 'static,
 {
-    EXECUTOR.spawn_coroutine_with_context(context, f)
+    EXECUTOR.spawn_coroutine_with_receiver_and_context(context, f)
 }
 
 /// Spawns a new asynchronous task with a set channel buffer and provided context that accepts messages to the task using [`channels`](futures::channel::mpsc).
 /// This function returns a handle that allows sending a message, or if there is no reference to the handle at all
 /// (in other words, all handles are dropped), the task would be aborted.
-pub fn spawn_coroutine_with_buffer_and_context<T, F, C, Fut>(
+pub fn spawn_coroutine_with_receiver_buffer_and_context<T, F, C, Fut>(
     context: C,
     buffer: usize,
     f: F,
@@ -95,24 +187,24 @@ where
     F: FnMut(C, Receiver<T>) -> Fut,
     Fut: Future<Output = ()> + Send + 'static,
 {
-    EXECUTOR.spawn_coroutine_with_buffer_and_context(context, buffer, f)
+    EXECUTOR.spawn_coroutine_with_receiver_buffer_and_context(context, buffer, f)
 }
 
 /// Spawns a new asynchronous task that accepts messages to the task using [`channels`](futures::channel::mpsc).
 /// This function returns a handle that allows sending a message, or if there is no reference to the handle at all
 /// (in other words, all handles are dropped), the task would be aborted.
-pub fn spawn_unbounded_coroutine<T, F, Fut>(f: F) -> UnboundedCommunicationTask<T>
+pub fn spawn_unbounded_coroutine_with_receiver<T, F, Fut>(f: F) -> UnboundedCommunicationTask<T>
 where
     F: FnMut(UnboundedReceiver<T>) -> Fut,
     Fut: Future<Output = ()> + Send + 'static,
 {
-    EXECUTOR.spawn_unbounded_coroutine(f)
+    EXECUTOR.spawn_unbounded_coroutine_with_receiver(f)
 }
 
 /// Spawns a new asynchronous task with provided context that accepts messages to the task using [`channels`](futures::channel::mpsc).
 /// This function returns a handle that allows sending a message, or if there is no reference to the handle at all
 /// (in other words, all handles are dropped), the task would be aborted.
-pub fn spawn_unbounded_coroutine_with_context<T, F, C, Fut>(
+pub fn spawn_unbounded_coroutine_with_receiver_and_context<T, F, C, Fut>(
     context: C,
     f: F,
 ) -> UnboundedCommunicationTask<T>
@@ -120,7 +212,7 @@ where
     F: FnMut(C, UnboundedReceiver<T>) -> Fut,
     Fut: Future<Output = ()> + Send + 'static,
 {
-    EXECUTOR.spawn_unbounded_coroutine_with_context(context, f)
+    EXECUTOR.spawn_unbounded_coroutine_with_receiver_and_context(context, f)
 }
 
 #[derive(Default)]

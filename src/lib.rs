@@ -423,6 +423,82 @@ pub trait Executor {
         }
     }
 
+    /// Spawns a new asynchronous task with provided context that accepts messages to the task.
+    /// This function returns a handle that allows sending a message, or if there is no reference to the handle at all
+    /// (in other words, all handles are dropped), the task would be aborted.
+    ///
+    /// # Note
+    /// If state must be borrowed across awaits,
+    /// use [`Executor::spawn_coroutine_with_receiver_and_context`].
+    fn spawn_coroutine_with_context<T, C, F, Fut>(
+        &self,
+        context: C,
+        f: F,
+    ) -> CommunicationTask<T>
+    where
+        F: FnMut(&mut C, T) -> Fut + Send + 'static,
+        Fut: Future<Output = ()> + Send + 'static,
+        C: Send + 'static,
+        T: Send + 'static,
+    {
+        Self::spawn_coroutine_with_buffer_and_context(self, context, 1, f)
+    }
+
+    /// Spawns a new asynchronous task with provided context that accepts messages to the task with a set buffer.
+    /// This function returns a handle that allows sending a message, or if there is no reference to the handle at all
+    /// (in other words, all handles are dropped), the task would be aborted.
+    fn spawn_coroutine_with_buffer_and_context<T, C, F, Fut>(
+        &self,
+        context: C,
+        buffer: usize,
+        mut f: F,
+    ) -> CommunicationTask<T>
+    where
+        F: FnMut(&mut C, T) -> Fut + Send + 'static,
+        Fut: Future<Output = ()> + Send + 'static,
+        C: Send + 'static,
+        T: Send + 'static,
+    {
+        let (tx, mut rx) = futures::channel::mpsc::channel(buffer);
+        let _task_handle = self.spawn_abortable(async move {
+            let mut context = context;
+            while let Some(msg) = rx.next().await {
+                f(&mut context, msg).await;
+            }
+        });
+        CommunicationTask {
+            _task_handle,
+            _channel_tx: tx,
+        }
+    }
+
+    /// Spawns a new asynchronous task with provided context that accepts unbounded messages to the task.
+    /// This function returns a handle that allows sending a message, or if there is no reference to the handle at all
+    /// (in other words, all handles are dropped), the task would be aborted.
+    fn spawn_unbounded_coroutine_with_context<T, C, F, Fut>(
+        &self,
+        context: C,
+        mut f: F,
+    ) -> UnboundedCommunicationTask<T>
+    where
+        F: FnMut(&mut C, T) -> Fut + Send + 'static,
+        Fut: Future<Output = ()> + Send + 'static,
+        C: Send + 'static,
+        T: Send + 'static,
+    {
+        let (tx, mut rx) = futures::channel::mpsc::unbounded();
+        let _task_handle = self.spawn_abortable(async move {
+            let mut context = context;
+            while let Some(msg) = rx.next().await {
+                f(&mut context, msg).await;
+            }
+        });
+        UnboundedCommunicationTask {
+            _task_handle,
+            _channel_tx: tx,
+        }
+    }
+
     /// Spawns a new asynchronous task that accepts messages to the task using [`channels`](futures::channel::mpsc).
     /// This function returns a handle that allows sending a message, or if there is no reference to the handle at all
     /// (in other words, all handles are dropped), the task would be aborted.

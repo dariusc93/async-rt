@@ -135,6 +135,31 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn task_coroutine_with_context() {
+        let executor = TokioExecutor;
+
+        type Resp = futures::channel::oneshot::Sender<usize>;
+
+        let mut task = executor.spawn_coroutine_with_context(
+            0usize,
+            |counter: &mut usize, resp: Resp| {
+                *counter += 1;
+                let n = *counter;
+                async move {
+                    resp.send(n).unwrap();
+                }
+            },
+        );
+
+        let (tx1, rx1) = futures::channel::oneshot::channel::<usize>();
+        let (tx2, rx2) = futures::channel::oneshot::channel::<usize>();
+        task.send(tx1).await.unwrap();
+        task.send(tx2).await.unwrap();
+        assert_eq!(rx1.await.unwrap(), 1);
+        assert_eq!(rx2.await.unwrap(), 2);
+    }
+
+    #[tokio::test]
     async fn task_coroutine_with_receiver() {
         use futures::stream::StreamExt;
         let executor = TokioExecutor;
@@ -225,6 +250,31 @@ mod tests {
         task.send(msg).unwrap();
         let resp = rx.await.unwrap();
         assert_eq!(resp, "Hello");
+    }
+
+    #[tokio::test]
+    async fn task_unbounded_coroutine_with_context() {
+        let executor = TokioExecutor;
+
+        type Resp = futures::channel::oneshot::Sender<usize>;
+
+        let mut task = executor.spawn_unbounded_coroutine_with_context(
+            0usize,
+            |counter: &mut usize, resp: Resp| {
+                *counter += 1;
+                let n = *counter;
+                async move {
+                    resp.send(n).unwrap();
+                }
+            },
+        );
+
+        let (tx1, rx1) = futures::channel::oneshot::channel::<usize>();
+        let (tx2, rx2) = futures::channel::oneshot::channel::<usize>();
+        task.send(tx1).unwrap();
+        task.send(tx2).unwrap();
+        assert_eq!(rx1.await.unwrap(), 1);
+        assert_eq!(rx2.await.unwrap(), 2);
     }
 
     #[tokio::test]

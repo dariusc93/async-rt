@@ -140,16 +140,14 @@ mod tests {
 
         type Resp = futures::channel::oneshot::Sender<usize>;
 
-        let mut task = executor.spawn_coroutine_with_context(
-            0usize,
-            |counter: &mut usize, resp: Resp| {
+        let mut task =
+            executor.spawn_coroutine_with_context(0usize, |counter: &mut usize, resp: Resp| {
                 *counter += 1;
                 let n = *counter;
                 async move {
                     resp.send(n).unwrap();
                 }
-            },
-        );
+            });
 
         let (tx1, rx1) = futures::channel::oneshot::channel::<usize>();
         let (tx2, rx2) = futures::channel::oneshot::channel::<usize>();

@@ -10,9 +10,9 @@ pub mod rc;
 
 use std::fmt::{Debug, Formatter};
 
-use futures::{SinkExt, StreamExt};
 use futures::channel::mpsc::{Receiver, UnboundedReceiver};
 use futures::future::{AbortHandle, Aborted};
+use futures::{SinkExt, StreamExt};
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
@@ -430,11 +430,7 @@ pub trait Executor {
     /// # Note
     /// If state must be borrowed across awaits,
     /// use [`Executor::spawn_coroutine_with_receiver_and_context`].
-    fn spawn_coroutine_with_context<T, C, F, Fut>(
-        &self,
-        context: C,
-        f: F,
-    ) -> CommunicationTask<T>
+    fn spawn_coroutine_with_context<T, C, F, Fut>(&self, context: C, f: F) -> CommunicationTask<T>
     where
         F: FnMut(&mut C, T) -> Fut + Send + 'static,
         Fut: Future<Output = ()> + Send + 'static,

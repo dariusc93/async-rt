@@ -193,9 +193,7 @@ where
 /// Spawns a new asynchronous task that accepts messages to the task using [`channels`](futures::channel::mpsc).
 /// This function returns a handle that allows sending a message, or if there is no reference to the handle at all
 /// (in other words, all handles are dropped), the task would be aborted.
-pub fn spawn_unbounded_coroutine_with_receiver<T, F, Fut>(
-    f: F,
-) -> UnboundedCommunicationTask<T>
+pub fn spawn_unbounded_coroutine_with_receiver<T, F, Fut>(f: F) -> UnboundedCommunicationTask<T>
 where
     F: FnMut(UnboundedReceiver<T>) -> Fut,
     Fut: Future<Output = ()> + Send + 'static,

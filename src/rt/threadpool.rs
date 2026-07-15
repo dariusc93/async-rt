@@ -1,9 +1,11 @@
-use crate::{Executor, ExecutorBlocking, InnerJoinHandle, JoinHandle};
+use crate::{CompletionGuard, Executor, ExecutorBlocking, InnerJoinHandle, JoinHandle};
 use futures::executor::ThreadPool;
 use futures::future::{AbortHandle, Abortable};
+use pollable_map::optional::Optional;
 use std::fmt::{Debug, Formatter};
 use std::future::Future;
-use std::sync::LazyLock;
+use std::sync::atomic::AtomicBool;
+use std::sync::{Arc, LazyLock};
 
 static THREADPOOL_EXECUTOR: LazyLock<ThreadPool> = LazyLock::new(|| ThreadPool::new().unwrap());
 
@@ -29,15 +31,19 @@ impl Executor for ThreadPoolExecutor {
         let (abort_handle, abort_registration) = AbortHandle::new_pair();
         let future = Abortable::new(future, abort_registration);
         let (tx, rx) = futures::channel::oneshot::channel();
-        let fut = async {
+        let finished = Arc::new(AtomicBool::new(false));
+        let completion = CompletionGuard::new(finished.clone());
+        let fut = async move {
+            let _completion = completion;
             let val = future.await;
             let _ = tx.send(val);
         };
 
         THREADPOOL_EXECUTOR.spawn_ok(fut);
         let inner = InnerJoinHandle::CustomHandle {
-            inner: Some(rx),
+            inner: Optional::new(rx),
             handle: abort_handle,
+            finished,
         };
 
         JoinHandle { inner }

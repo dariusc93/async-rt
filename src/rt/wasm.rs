@@ -1,6 +1,9 @@
-use crate::{Executor, ExecutorBlocking, InnerJoinHandle, JoinHandle};
+use crate::{CompletionGuard, Executor, ExecutorBlocking, InnerJoinHandle, JoinHandle};
 use futures::future::{AbortHandle, Abortable};
+use pollable_map::optional::Optional;
 use std::future::Future;
+use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
 
 /// Wasm executor
 #[derive(Clone, Copy, Debug, PartialOrd, PartialEq, Eq)]
@@ -15,15 +18,19 @@ impl Executor for WasmExecutor {
         let (abort_handle, abort_registration) = AbortHandle::new_pair();
         let future = Abortable::new(future, abort_registration);
         let (tx, rx) = futures::channel::oneshot::channel();
-        let fut = async {
+        let finished = Arc::new(AtomicBool::new(false));
+        let completion = CompletionGuard::new(finished.clone());
+        let fut = async move {
+            let _completion = completion;
             let val = future.await;
             _ = tx.send(val);
         };
 
         wasm_bindgen_futures::spawn_local(fut);
         let inner = InnerJoinHandle::CustomHandle {
-            inner: Some(rx),
+            inner: Optional::new(rx),
             handle: abort_handle,
+            finished,
         };
         JoinHandle { inner }
     }

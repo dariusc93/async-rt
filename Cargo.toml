@@ -20,6 +20,7 @@ threadpool = ["futures/thread-pool"]
 
 [dependencies]
 futures = { version = "0.3.31", default-features = false, features = ["std", "alloc", "async-await"] }
+pollable-map = "0.1.7"
 parking_lot = "0.12.5"
 either = { version = "1.15.0", optional = true}
 

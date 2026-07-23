@@ -10,16 +10,36 @@ pub mod rc;
 pub mod scoped;
 
 use std::fmt::{Debug, Formatter};
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use futures::channel::mpsc::{Receiver, UnboundedReceiver};
 use futures::future::{AbortHandle, Aborted};
 use futures::{SinkExt, StreamExt};
+use pollable_map::optional::Optional;
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll};
 
 pub use crate::scoped::{JoinError as ScopedJoinError, Scope, ScopeExecutor, ScopedJoinHandle};
+
+#[cfg_attr(feature = "tokio", allow(dead_code))]
+pub(crate) struct CompletionGuard {
+    finished: Arc<AtomicBool>,
+}
+
+impl CompletionGuard {
+    #[cfg_attr(feature = "tokio", allow(dead_code))]
+    pub(crate) fn new(finished: Arc<AtomicBool>) -> Self {
+        Self { finished }
+    }
+}
+
+impl Drop for CompletionGuard {
+    fn drop(&mut self) {
+        self.finished.store(true, Ordering::Release);
+    }
+}
 
 #[cfg(all(
     not(feature = "threadpool"),
@@ -52,11 +72,12 @@ impl<T> Debug for JoinHandle<T> {
 
 enum InnerJoinHandle<T> {
     #[cfg(all(feature = "tokio", not(target_arch = "wasm32")))]
-    TokioHandle(::tokio::task::JoinHandle<T>),
+    TokioHandle(Optional<::tokio::task::JoinHandle<T>>),
     #[allow(dead_code)]
     CustomHandle {
-        inner: Option<futures::channel::oneshot::Receiver<Result<T, Aborted>>>,
+        inner: Optional<futures::channel::oneshot::Receiver<Result<T, Aborted>>>,
         handle: AbortHandle,
+        finished: Arc<AtomicBool>,
     },
     Empty,
 }
@@ -79,10 +100,14 @@ impl<T> JoinHandle<T> {
 impl<T> JoinHandle<T> {
     /// Abort the task associated with the handle.
     pub fn abort(&self) {
-        match self.inner {
+        match &self.inner {
             #[cfg(all(feature = "tokio", not(target_arch = "wasm32")))]
-            InnerJoinHandle::TokioHandle(ref handle) => handle.abort(),
-            InnerJoinHandle::CustomHandle { ref handle, .. } => handle.abort(),
+            InnerJoinHandle::TokioHandle(handle) => {
+                if let Some(handle) = handle.as_ref() {
+                    handle.abort();
+                }
+            }
+            InnerJoinHandle::CustomHandle { handle, .. } => handle.abort(),
             InnerJoinHandle::Empty => {}
         }
     }
@@ -92,13 +117,14 @@ impl<T> JoinHandle<T> {
     /// Note that this method can return false even if [`JoinHandle::abort`] has been called on the
     /// task due to the time it may take for the task to cancel.
     pub fn is_finished(&self) -> bool {
-        match self.inner {
+        match &self.inner {
             #[cfg(all(feature = "tokio", not(target_arch = "wasm32")))]
-            InnerJoinHandle::TokioHandle(ref handle) => handle.is_finished(),
+            InnerJoinHandle::TokioHandle(handle) => {
+                handle.as_ref().map(|h| h.is_finished()).unwrap_or(true)
+            }
             InnerJoinHandle::CustomHandle {
-                ref handle,
-                ref inner,
-            } => handle.is_aborted() || inner.is_none(),
+                inner, finished, ..
+            } => finished.load(Ordering::Acquire) || inner.is_none(),
             InnerJoinHandle::Empty => true,
         }
     }
@@ -142,13 +168,7 @@ impl<T> Future for JoinHandle<T> {
                 }
             }
             InnerJoinHandle::CustomHandle { inner, .. } => {
-                let Some(this) = inner.as_mut() else {
-                    unreachable!("cannot poll a completed future");
-                };
-
-                let fut = futures::ready!(Pin::new(this).poll(cx));
-                inner.take();
-
+                let fut = futures::ready!(Pin::new(inner).poll(cx));
                 match fut {
                     Ok(Ok(val)) => Poll::Ready(Ok(val)),
                     Ok(Err(e)) => {
@@ -721,9 +741,13 @@ pub trait ExecutorBlocking: Executor {
 
 #[cfg(test)]
 mod tests {
+    use crate::CompletionGuard;
     use crate::{Executor, ExecutorBlocking, InnerJoinHandle, JoinHandle};
     use futures::future::AbortHandle;
+    use pollable_map::optional::Optional;
     use std::future::Future;
+    use std::sync::Arc;
+    use std::sync::atomic::AtomicBool;
 
     async fn task(tx: futures::channel::oneshot::Sender<()>) {
         futures_timer::Delay::new(std::time::Duration::from_secs(5)).await;
@@ -755,15 +779,21 @@ mod tests {
                 let (abort_handle, abort_registration) = AbortHandle::new_pair();
                 let future = Abortable::new(future, abort_registration);
                 let (tx, rx) = futures::channel::oneshot::channel();
-                let fut = async {
+
+                let fin = Arc::new(AtomicBool::new(false));
+                let finished = fin.clone();
+                let completion = CompletionGuard::new(fin);
+                let fut = async move {
+                    let _completion = completion;
                     let val = future.await;
                     let _ = tx.send(val);
                 };
 
                 self.pool.spawn_ok(fut);
                 let inner = InnerJoinHandle::CustomHandle {
-                    inner: Some(rx),
+                    inner: Optional::new(rx),
                     handle: abort_handle,
+                    finished,
                 };
 
                 JoinHandle { inner }

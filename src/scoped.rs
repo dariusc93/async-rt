@@ -27,6 +27,8 @@ use futures::stream::FuturesUnordered;
 use futures::{FutureExt, StreamExt};
 use parking_lot::Mutex;
 use std::sync::{Arc, Weak};
+use std::sync::atomic::AtomicBool;
+use pollable_map::optional::Optional;
 
 struct ScopeState<'scope> {
     inbox: Mutex<Vec<BoxFuture<'scope, ()>>>,
@@ -102,8 +104,9 @@ impl<'scope, 'env> Scope<'scope, 'env> {
 
         let join = JoinHandle {
             inner: InnerJoinHandle::CustomHandle {
-                inner: Some(rx),
+                inner: Optional::new(rx),
                 handle: abort_handle,
+                finished: Arc::new(AtomicBool::new(false)),
             },
         };
         AbortableJoinHandle::from(join)
@@ -532,8 +535,9 @@ where
 
         JoinHandle {
             inner: InnerJoinHandle::CustomHandle {
-                inner: Some(rx),
+                inner: Optional::new(rx),
                 handle: abort_handle,
+                finished: Arc::new(AtomicBool::new(false)),
             },
         }
     }

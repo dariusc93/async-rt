@@ -16,29 +16,42 @@ use crate::{
     AbortableJoinHandle, CommunicationTask, Executor, InnerJoinHandle, JoinHandle,
     UnboundedCommunicationTask,
 };
+use core::future::{Future, poll_fn};
+use core::marker::PhantomData;
+use core::pin::Pin;
+use core::task::{Context, Poll};
 use futures::channel::mpsc::{Receiver, UnboundedReceiver};
 use futures::channel::oneshot;
 use futures::future::{AbortHandle, Abortable, BoxFuture};
 use futures::stream::FuturesUnordered;
 use futures::{FutureExt, StreamExt};
 use parking_lot::Mutex;
-use core::future::{Future, poll_fn};
-use core::marker::PhantomData;
-use core::pin::Pin;
-use core::task::{Context, Poll};
+use std::sync::{Arc, Weak};
+
+struct ScopeState<'scope> {
+    inbox: Mutex<Vec<BoxFuture<'scope, ()>>>,
+}
 
 /// A scope within which tasks can be spawned that borrow from the enclosing
 /// stack frame.
-pub struct Scope<'env> {
-    inbox: Mutex<Vec<BoxFuture<'env, ()>>>,
+pub struct Scope<'scope, 'env: 'scope> {
+    state: Weak<ScopeState<'scope>>,
+    _scope: PhantomData<&'scope mut &'scope ()>,
     _env: PhantomData<&'env mut &'env ()>,
 }
 
-impl<'env> Scope<'env> {
+impl<'scope, 'env> Scope<'scope, 'env> {
     fn new() -> Self {
         Self {
-            inbox: Mutex::new(Vec::new()),
+            state: Weak::new(),
+            _scope: PhantomData,
             _env: PhantomData,
+        }
+    }
+
+    fn push(&self, task: BoxFuture<'scope, ()>) {
+        if let Some(state) = self.state.upgrade() {
+            state.inbox.lock().push(task);
         }
     }
 
@@ -47,13 +60,13 @@ impl<'env> Scope<'env> {
     /// The future may borrow any data that outlives its lifetime `'env`. The task will
     /// be polled cooperatively alongside the scope's user closure and any
     /// other spawned tasks.
-    pub fn spawn<Fut>(&self, fut: Fut) -> ScopedJoinHandle<Fut::Output>
+    pub fn spawn<Fut>(&'scope self, fut: Fut) -> ScopedJoinHandle<Fut::Output>
     where
-        Fut: Future + Send + 'env,
-        Fut::Output: Send + 'env,
+        Fut: Future + Send + 'scope,
+        Fut::Output: Send + 'scope,
     {
         let (tx, rx) = oneshot::channel();
-        let wrapped: BoxFuture<'env, ()> = async move {
+        let wrapped: BoxFuture<'scope, ()> = async move {
             let output = fut.await;
             // If the receiver was dropped, the caller doesn't care about
             // the output so we will discard it.
@@ -61,7 +74,7 @@ impl<'env> Scope<'env> {
         }
         .boxed();
 
-        self.inbox.lock().push(wrapped);
+        self.push(wrapped);
 
         ScopedJoinHandle { rx }
     }
@@ -71,21 +84,21 @@ impl<'env> Scope<'env> {
     /// This mirrors [`Executor::spawn_abortable`] for cooperatively
     /// scheduled tasks. The returned handle aborts the task when all
     /// references to it have been dropped.
-    pub fn spawn_abortable<Fut>(&self, fut: Fut) -> AbortableJoinHandle<Fut::Output>
+    pub fn spawn_abortable<Fut>(&'scope self, fut: Fut) -> AbortableJoinHandle<Fut::Output>
     where
-        Fut: Future + Send + 'env,
-        Fut::Output: Send + 'env,
+        Fut: Future + Send + 'scope,
+        Fut::Output: Send + 'scope,
     {
         let (abort_handle, abort_reg) = AbortHandle::new_pair();
         let abortable = Abortable::new(fut, abort_reg);
         let (tx, rx) = oneshot::channel();
 
-        let wrapped: BoxFuture<'env, ()> = async move {
+        let wrapped: BoxFuture<'scope, ()> = async move {
             let val = abortable.await;
             let _ = tx.send(val);
         }
         .boxed();
-        self.inbox.lock().push(wrapped);
+        self.push(wrapped);
 
         let join = JoinHandle {
             inner: InnerJoinHandle::CustomHandle {
@@ -99,21 +112,22 @@ impl<'env> Scope<'env> {
     /// Spawn a task into this scope without keeping a handle to it.
     ///
     /// Equivalent to [`Executor::dispatch`] for scoped tasks.
-    pub fn dispatch<Fut>(&self, fut: Fut)
+    pub fn dispatch<Fut>(&'scope self, fut: Fut)
     where
-        Fut: Future + Send + 'env,
-        Fut::Output: Send + 'env,
+        Fut: Future + Send + 'scope,
+        Fut::Output: Send + 'scope,
     {
-        let _ = self.spawn(fut);
+        drop(self.spawn(fut));
     }
 
     /// Spawn a message-driven coroutine into this scope.
     ///
     /// Equivalent to [`Executor::spawn_coroutine`] for scoped tasks.
-    pub fn spawn_coroutine<T, F, Fut>(&self, f: F) -> CommunicationTask<T>
+    pub fn spawn_coroutine<T, F, Fut>(&'scope self, f: F) -> CommunicationTask<T>
     where
-        F: FnMut(Receiver<T>) -> Fut,
-        Fut: Future<Output = ()> + Send + 'env,
+        F: FnMut(T) -> Fut + Send + 'scope,
+        Fut: Future<Output = ()> + Send + 'scope,
+        T: Send + 'scope,
     {
         self.spawn_coroutine_with_buffer(1, f)
     }
@@ -121,47 +135,21 @@ impl<'env> Scope<'env> {
     /// Like [`Scope::spawn_coroutine`] but with a configurable channel
     /// buffer.
     pub fn spawn_coroutine_with_buffer<T, F, Fut>(
-        &self,
+        &'scope self,
         buffer: usize,
         mut f: F,
     ) -> CommunicationTask<T>
     where
-        F: FnMut(Receiver<T>) -> Fut,
-        Fut: Future<Output = ()> + Send + 'env,
+        F: FnMut(T) -> Fut + Send + 'scope,
+        Fut: Future<Output = ()> + Send + 'scope,
+        T: Send + 'scope,
     {
-        let (tx, rx) = futures::channel::mpsc::channel(buffer);
-        let task_handle = self.spawn_abortable(f(rx));
-        CommunicationTask::new(task_handle, tx)
-    }
-
-    /// Like [`Scope::spawn_coroutine`] but passes a caller-provided
-    /// context into the coroutine alongside the message receiver.
-    pub fn spawn_coroutine_with_context<T, F, C, Fut>(
-        &self,
-        context: C,
-        f: F,
-    ) -> CommunicationTask<T>
-    where
-        F: FnMut(C, Receiver<T>) -> Fut,
-        Fut: Future<Output = ()> + Send + 'env,
-    {
-        self.spawn_coroutine_with_buffer_and_context(context, 1, f)
-    }
-
-    /// Like [`Scope::spawn_coroutine_with_context`] but with a
-    /// configurable channel buffer.
-    pub fn spawn_coroutine_with_buffer_and_context<T, F, C, Fut>(
-        &self,
-        context: C,
-        buffer: usize,
-        mut f: F,
-    ) -> CommunicationTask<T>
-    where
-        F: FnMut(C, Receiver<T>) -> Fut,
-        Fut: Future<Output = ()> + Send + 'env,
-    {
-        let (tx, rx) = futures::channel::mpsc::channel(buffer);
-        let task_handle = self.spawn_abortable(f(context, rx));
+        let (tx, mut rx) = futures::channel::mpsc::channel(buffer);
+        let task_handle = self.spawn_abortable(async move {
+            while let Some(message) = rx.next().await {
+                f(message).await;
+            }
+        });
         CommunicationTask::new(task_handle, tx)
     }
 
@@ -170,58 +158,194 @@ impl<'env> Scope<'env> {
     /// Equivalent to [`Executor::spawn_unbounded_coroutine`] for scoped
     /// tasks.
     pub fn spawn_unbounded_coroutine<T, F, Fut>(
-        &self,
+        &'scope self,
+        mut f: F,
+    ) -> UnboundedCommunicationTask<T>
+    where
+        F: FnMut(T) -> Fut + Send + 'scope,
+        Fut: Future<Output = ()> + Send + 'scope,
+        T: Send + 'scope,
+    {
+        let (tx, mut rx) = futures::channel::mpsc::unbounded();
+        let task_handle = self.spawn_abortable(async move {
+            while let Some(message) = rx.next().await {
+                f(message).await;
+            }
+        });
+        UnboundedCommunicationTask::new(task_handle, tx)
+    }
+
+    /// Spawn a message-driven coroutine with caller-provided context.
+    ///
+    /// If the context must be borrowed across awaits, use
+    /// [`Scope::spawn_coroutine_with_receiver_and_context`].
+    pub fn spawn_coroutine_with_context<T, C, F, Fut>(
+        &'scope self,
+        context: C,
+        f: F,
+    ) -> CommunicationTask<T>
+    where
+        F: FnMut(&mut C, T) -> Fut + Send + 'scope,
+        Fut: Future<Output = ()> + Send + 'scope,
+        C: Send + 'scope,
+        T: Send + 'scope,
+    {
+        self.spawn_coroutine_with_buffer_and_context(context, 1, f)
+    }
+
+    /// Like [`Scope::spawn_coroutine_with_context`] but with a configurable
+    /// channel buffer.
+    pub fn spawn_coroutine_with_buffer_and_context<T, C, F, Fut>(
+        &'scope self,
+        context: C,
+        buffer: usize,
+        mut f: F,
+    ) -> CommunicationTask<T>
+    where
+        F: FnMut(&mut C, T) -> Fut + Send + 'scope,
+        Fut: Future<Output = ()> + Send + 'scope,
+        C: Send + 'scope,
+        T: Send + 'scope,
+    {
+        let (tx, mut rx) = futures::channel::mpsc::channel(buffer);
+        let task_handle = self.spawn_abortable(async move {
+            let mut context = context;
+            while let Some(message) = rx.next().await {
+                f(&mut context, message).await;
+            }
+        });
+        CommunicationTask::new(task_handle, tx)
+    }
+
+    /// Spawn an unbounded message-driven coroutine with caller-provided
+    /// context.
+    pub fn spawn_unbounded_coroutine_with_context<T, C, F, Fut>(
+        &'scope self,
+        context: C,
+        mut f: F,
+    ) -> UnboundedCommunicationTask<T>
+    where
+        F: FnMut(&mut C, T) -> Fut + Send + 'scope,
+        Fut: Future<Output = ()> + Send + 'scope,
+        C: Send + 'scope,
+        T: Send + 'scope,
+    {
+        let (tx, mut rx) = futures::channel::mpsc::unbounded();
+        let task_handle = self.spawn_abortable(async move {
+            let mut context = context;
+            while let Some(message) = rx.next().await {
+                f(&mut context, message).await;
+            }
+        });
+        UnboundedCommunicationTask::new(task_handle, tx)
+    }
+
+    /// Spawn a coroutine that receives the bounded channel directly.
+    pub fn spawn_coroutine_with_receiver<T, F, Fut>(&'scope self, f: F) -> CommunicationTask<T>
+    where
+        F: FnMut(Receiver<T>) -> Fut,
+        Fut: Future<Output = ()> + Send + 'scope,
+    {
+        self.spawn_coroutine_with_receiver_and_buffer(1, f)
+    }
+
+    /// Like [`Scope::spawn_coroutine_with_receiver`] but with a configurable
+    /// channel buffer.
+    pub fn spawn_coroutine_with_receiver_and_buffer<T, F, Fut>(
+        &'scope self,
+        buffer: usize,
+        mut f: F,
+    ) -> CommunicationTask<T>
+    where
+        F: FnMut(Receiver<T>) -> Fut,
+        Fut: Future<Output = ()> + Send + 'scope,
+    {
+        let (tx, rx) = futures::channel::mpsc::channel(buffer);
+        let task_handle = self.spawn_abortable(f(rx));
+        CommunicationTask::new(task_handle, tx)
+    }
+
+    /// Spawn a coroutine that receives caller-provided context and the
+    /// bounded channel directly.
+    pub fn spawn_coroutine_with_receiver_and_context<T, F, C, Fut>(
+        &'scope self,
+        context: C,
+        f: F,
+    ) -> CommunicationTask<T>
+    where
+        F: FnMut(C, Receiver<T>) -> Fut,
+        Fut: Future<Output = ()> + Send + 'scope,
+    {
+        self.spawn_coroutine_with_receiver_buffer_and_context(context, 1, f)
+    }
+
+    /// Like [`Scope::spawn_coroutine_with_receiver_and_context`] but with a
+    /// configurable channel buffer.
+    pub fn spawn_coroutine_with_receiver_buffer_and_context<T, F, C, Fut>(
+        &'scope self,
+        context: C,
+        buffer: usize,
+        mut f: F,
+    ) -> CommunicationTask<T>
+    where
+        F: FnMut(C, Receiver<T>) -> Fut,
+        Fut: Future<Output = ()> + Send + 'scope,
+    {
+        let (tx, rx) = futures::channel::mpsc::channel(buffer);
+        let task_handle = self.spawn_abortable(f(context, rx));
+        CommunicationTask::new(task_handle, tx)
+    }
+
+    /// Spawn a coroutine that receives the unbounded channel directly.
+    pub fn spawn_unbounded_coroutine_with_receiver<T, F, Fut>(
+        &'scope self,
         mut f: F,
     ) -> UnboundedCommunicationTask<T>
     where
         F: FnMut(UnboundedReceiver<T>) -> Fut,
-        Fut: Future<Output = ()> + Send + 'env,
+        Fut: Future<Output = ()> + Send + 'scope,
     {
         let (tx, rx) = futures::channel::mpsc::unbounded();
         let task_handle = self.spawn_abortable(f(rx));
         UnboundedCommunicationTask::new(task_handle, tx)
     }
 
-    /// Like [`Scope::spawn_unbounded_coroutine`] but passes a
-    /// caller-provided context into the coroutine.
-    pub fn spawn_unbounded_coroutine_with_context<T, F, C, Fut>(
-        &self,
+    /// Spawn a coroutine that receives caller-provided context and the
+    /// unbounded channel directly.
+    pub fn spawn_unbounded_coroutine_with_receiver_and_context<T, F, C, Fut>(
+        &'scope self,
         context: C,
         mut f: F,
     ) -> UnboundedCommunicationTask<T>
     where
         F: FnMut(C, UnboundedReceiver<T>) -> Fut,
-        Fut: Future<Output = ()> + Send + 'env,
+        Fut: Future<Output = ()> + Send + 'scope,
     {
         let (tx, rx) = futures::channel::mpsc::unbounded();
         let task_handle = self.spawn_abortable(f(context, rx));
         UnboundedCommunicationTask::new(task_handle, tx)
     }
-
 }
 
 /// Drive a scope once: absorb any inbox entries, then poll the active
 /// set until no more immediate progress can be made.
-fn drive_scope<'env>(
-    active: &mut FuturesUnordered<BoxFuture<'env, ()>>,
-    scope: &Scope<'env>,
+fn drive_scope<'scope>(
+    active: &mut FuturesUnordered<BoxFuture<'scope, ()>>,
+    state: &ScopeState<'scope>,
     cx: &mut Context<'_>,
 ) -> (bool, bool) {
     let mut made_progress = false;
     loop {
-        // Absorb any newly-spawned tasks into the active set. Take the
-        // Vec out with mem::take so the lock is held just long enough
-        // to swap, never across a poll.
-        let incoming = std::mem::take(&mut *scope.inbox.lock());
+        // Take the queued tasks while holding the lock only long enough to
+        // swap the inbox, never while polling user code.
+        let incoming = std::mem::take(&mut *state.inbox.lock());
         active.extend(incoming);
         match active.poll_next_unpin(cx) {
             Poll::Ready(Some(())) => made_progress = true,
             Poll::Ready(None) => return (made_progress, true),
             Poll::Pending => {
-                // A task may have pushed new futures to the inbox
-                // during its own poll, so it doesn't return Pending until
-                // we've had a chance to poll them.
-                if scope.inbox.lock().is_empty() {
+                // A child may have spawned another task during its poll.
+                if state.inbox.lock().is_empty() {
                     return (made_progress, false);
                 }
             }
@@ -235,9 +359,9 @@ fn drive_scope<'env>(
 /// before the task finishes (for example, because the scope future was
 /// cancelled), awaiting yields [`JoinError::Cancelled`].
 ///
-/// # Note
-/// The handle is `'static` so it can  be moved into other spawned tasks, channels, or futures
-/// without lifetime gymnastics.
+/// The handle does not borrow the spawned future itself. It can therefore
+/// outlive the scope when its output type is also `'static`; borrowed output
+/// types retain their normal lifetime restrictions.
 pub struct ScopedJoinHandle<T> {
     rx: oneshot::Receiver<T>,
 }
@@ -298,13 +422,19 @@ impl<T> Future for ScopedJoinHandle<T> {
 /// ```
 pub async fn scope<'env, F, T>(f: F) -> T
 where
-    F: AsyncFnOnce(&Scope<'env>) -> T,
+    F: for<'scope> AsyncFnOnce(&'scope Scope<'scope, 'env>) -> T,
 {
-    let scope: Scope<'env> = Scope::new();
+    // Declaration order is part of the safety invariant: `active` is dropped
+    // first, then `state` (and its queued tasks), and finally `scope`.
+    let mut scope = Scope::new();
+    let state = Arc::new(ScopeState {
+        inbox: Mutex::new(Vec::new()),
+    });
+    scope.state = Arc::downgrade(&state);
     // The active task set lives on the driver, not inside `Scope`. Only
     // `drive_scope` touches it, so no lock guards it, and the inbox mutex
     // is enough for the spawn side.
-    let mut active: FuturesUnordered<BoxFuture<'env, ()>> = FuturesUnordered::new();
+    let mut active = FuturesUnordered::new();
 
     let result = {
         let user_fut = f(&scope);
@@ -315,7 +445,7 @@ where
                 if let Poll::Ready(r) = user_fut.as_mut().poll(cx) {
                     return Poll::Ready(r);
                 }
-                let (made_progress, _empty) = drive_scope(&mut active, &scope, cx);
+                let (made_progress, _empty) = drive_scope(&mut active, &state, cx);
                 if !made_progress {
                     return Poll::Pending;
                 }
@@ -327,7 +457,7 @@ where
     // Drain any remaining spawned tasks before the scope goes away, so
     // every borrow of the data is released before this frame unwinds.
     poll_fn(|cx| {
-        let (_made_progress, empty) = drive_scope(&mut active, &scope, cx);
+        let (_made_progress, empty) = drive_scope(&mut active, &state, cx);
         if empty {
             Poll::Ready(())
         } else {
@@ -351,7 +481,7 @@ where
 /// from the enclosing stack frame. Use [`scope`] for that.
 pub struct ScopeExecutor<'scope, E> {
     inner: &'scope E,
-    task_handles: Mutex<Vec<JoinHandle<()>>>,
+    task_handles: Mutex<Vec<AbortableJoinHandle<()>>>,
     _scope: PhantomData<&'scope mut &'scope ()>,
 }
 
@@ -395,7 +525,9 @@ where
             let _ = tx.send(val);
         };
 
-        let task_handle = self.inner.spawn(wrapped);
+        // Track an abort-on-drop handle so cancellation remains effective even
+        // after the handles are drained from `ScopeExecutor` for joining.
+        let task_handle: AbortableJoinHandle<()> = self.inner.spawn(wrapped).into();
         self.task_handles.lock().push(task_handle);
 
         JoinHandle {
@@ -465,15 +597,17 @@ where
 
 #[cfg(test)]
 mod tests {
-    use std::time::Duration;
-    use futures_timer::Delay;
     use super::*;
+    #[cfg(feature = "tokio")]
+    use futures_timer::Delay;
+    #[cfg(feature = "tokio")]
+    use std::time::Duration;
 
     #[tokio::test]
     async fn borrows_stack_data() {
         let data = vec![1, 2, 3, 4];
         let data = &data;
-        let sum = scope(async |s: &Scope<'_>| {
+        let sum = scope(async |s: &Scope<'_, '_>| {
             let a = s.spawn(async move { data[0] + data[1] });
             let b = s.spawn(async move { data[2] + data[3] });
             a.await.unwrap() + b.await.unwrap()
@@ -487,7 +621,7 @@ mod tests {
         use std::sync::atomic::{AtomicUsize, Ordering};
         let counter = AtomicUsize::new(0);
         let counter_ref = &counter;
-        scope(async |s: &Scope<'_>| {
+        scope(async |s: &Scope<'_, '_>| {
             for _ in 0..8 {
                 s.spawn(async move {
                     counter_ref.fetch_add(1, Ordering::SeqCst);
@@ -500,13 +634,13 @@ mod tests {
 
     #[tokio::test]
     async fn returns_closure_value() {
-        let v: i32 = scope(async |_s: &Scope<'_>| 42).await;
+        let v: i32 = scope(async |_s: &Scope<'_, '_>| 42).await;
         assert_eq!(v, 42);
     }
 
     #[tokio::test]
     async fn join_handle_yields_output() {
-        let out = scope(async |s: &Scope<'_>| {
+        let out = scope(async |s: &Scope<'_, '_>| {
             let h = s.spawn(async { "hello" });
             h.await.unwrap()
         })
@@ -519,7 +653,7 @@ mod tests {
         use std::sync::atomic::{AtomicUsize, Ordering};
         let counter = AtomicUsize::new(0);
         let counter_ref = &counter;
-        let total: usize = scope(async |s: &Scope<'_>| {
+        let total: usize = scope(async |s: &Scope<'_, '_>| {
             let handles: Vec<_> = (0..32)
                 .map(|i| {
                     s.spawn(async move {
@@ -540,6 +674,40 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn child_task_can_spawn_nested_task() {
+        let result = scope(async |s: &Scope<'_, '_>| {
+            let outer = s.spawn(async move {
+                let inner = s.spawn(async { 41usize });
+                inner.await.unwrap() + 1
+            });
+            outer.await.unwrap()
+        })
+        .await;
+
+        assert_eq!(result, 42);
+    }
+
+    #[tokio::test]
+    async fn drains_unawaited_nested_task() {
+        use std::sync::atomic::{AtomicBool, Ordering};
+
+        let nested_ran = AtomicBool::new(false);
+        let nested_ran_ref = &nested_ran;
+
+        scope(async |s: &Scope<'_, '_>| {
+            s.dispatch(async move {
+                s.dispatch(async move {
+                    nested_ran_ref.store(true, Ordering::SeqCst);
+                });
+            });
+        })
+        .await;
+
+        assert!(nested_ran.load(Ordering::SeqCst));
+    }
+
+    #[cfg(feature = "tokio")]
+    #[tokio::test]
     async fn executor_scope_runs_tasks() {
         use crate::rt::tokio::TokioExecutor;
         let executor = TokioExecutor;
@@ -559,11 +727,9 @@ mod tests {
         let total = AtomicUsize::new(0);
         let total_ref = &total;
 
-        scope(async |s: &Scope<'_>| {
-            let mut task = s.spawn_coroutine(|mut rx| async move {
-                while let Some(value) = rx.next().await {
-                    total_ref.fetch_add(value, Ordering::SeqCst);
-                }
+        scope(async |s: &Scope<'_, '_>| {
+            let mut task = s.spawn_coroutine(|value| async move {
+                total_ref.fetch_add(value, Ordering::SeqCst);
             });
             for v in [1usize, 2, 3, 4] {
                 task.send(v).await.unwrap();
@@ -576,12 +742,101 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn scope_receiver_coroutine_receives_messages() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        let total = AtomicUsize::new(0);
+        let total_ref = &total;
+
+        scope(async |s: &Scope<'_, '_>| {
+            let mut task = s.spawn_coroutine_with_receiver(|mut rx| async move {
+                while let Some(value) = rx.next().await {
+                    total_ref.fetch_add(value, Ordering::SeqCst);
+                }
+            });
+            for value in [1usize, 2, 3, 4] {
+                task.send(value).await.unwrap();
+            }
+            drop(task);
+        })
+        .await;
+
+        assert_eq!(total.load(Ordering::SeqCst), 10);
+    }
+
+    #[tokio::test]
+    async fn scope_coroutine_api_matches_executor() {
+        use futures::future::ready;
+
+        scope(async |s: &Scope<'_, '_>| {
+            let task = s.spawn_coroutine_with_buffer(2, |_value: usize| ready(()));
+            drop(task);
+
+            let task = s.spawn_unbounded_coroutine(|_value: usize| ready(()));
+            drop(task);
+
+            let task =
+                s.spawn_coroutine_with_context(0usize, |context: &mut usize, value: usize| {
+                    *context += value;
+                    ready(())
+                });
+            drop(task);
+
+            let task = s.spawn_coroutine_with_buffer_and_context(
+                0usize,
+                2,
+                |context: &mut usize, value: usize| {
+                    *context += value;
+                    ready(())
+                },
+            );
+            drop(task);
+
+            let task = s.spawn_unbounded_coroutine_with_context(
+                0usize,
+                |context: &mut usize, value: usize| {
+                    *context += value;
+                    ready(())
+                },
+            );
+            drop(task);
+
+            let task =
+                s.spawn_coroutine_with_receiver_and_buffer(2, |_rx: Receiver<usize>| async {});
+            drop(task);
+
+            let task = s.spawn_coroutine_with_receiver_and_context(
+                0usize,
+                |_context, _rx: Receiver<usize>| async {},
+            );
+            drop(task);
+
+            let task = s.spawn_coroutine_with_receiver_buffer_and_context(
+                0usize,
+                2,
+                |_context, _rx: Receiver<usize>| async {},
+            );
+            drop(task);
+
+            let task =
+                s.spawn_unbounded_coroutine_with_receiver(|_rx: UnboundedReceiver<usize>| async {});
+            drop(task);
+
+            let task = s.spawn_unbounded_coroutine_with_receiver_and_context(
+                0usize,
+                |_context, _rx: UnboundedReceiver<usize>| async {},
+            );
+            drop(task);
+        })
+        .await;
+    }
+
+    #[tokio::test]
     async fn scope_dispatch_runs_fire_and_forget() {
         use std::sync::atomic::{AtomicBool, Ordering};
         let flag = AtomicBool::new(false);
         let flag_ref = &flag;
 
-        scope(async |s: &Scope<'_>| {
+        scope(async |s: &Scope<'_, '_>| {
             s.dispatch(async move {
                 flag_ref.store(true, Ordering::SeqCst);
             });
@@ -591,6 +846,7 @@ mod tests {
         assert!(flag.load(Ordering::SeqCst));
     }
 
+    #[cfg(feature = "tokio")]
     #[tokio::test]
     async fn executor_scope_drains_unawaited_tasks() {
         use crate::rt::tokio::TokioExecutor;
@@ -619,6 +875,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "tokio")]
     #[tokio::test]
     async fn executor_scope_swallows_task_panic() {
         use crate::rt::tokio::TokioExecutor;
@@ -649,6 +906,7 @@ mod tests {
         assert_eq!(sibling_done.load(Ordering::SeqCst), 1);
     }
 
+    #[cfg(feature = "tokio")]
     #[tokio::test]
     async fn executor_scope_aborts_on_external_cancel() {
         use crate::rt::tokio::TokioExecutor;
@@ -684,5 +942,38 @@ mod tests {
             !flag.load(Ordering::SeqCst),
             "task should have been aborted by scope drop"
         );
+    }
+
+    #[cfg(feature = "tokio")]
+    #[tokio::test]
+    async fn executor_scope_aborts_when_cancelled_during_drain() {
+        use crate::rt::tokio::TokioExecutor;
+        use futures::future::{Either, pending, select};
+
+        let executor = TokioExecutor;
+        let (started_tx, started_rx) = oneshot::channel();
+        let (held_tx, held_rx) = oneshot::channel::<()>();
+
+        let scope_fut = Box::pin(executor.executor_scope(async move |s| {
+            let _handle = s.spawn(async move {
+                let _held_until_task_drop = held_tx;
+                let _ = started_tx.send(());
+                pending::<()>().await;
+            });
+        }));
+
+        let scope_fut = match select(scope_fut, started_rx).await {
+            Either::Right((Ok(()), scope_fut)) => scope_fut,
+            Either::Left(_) => panic!("scope unexpectedly completed"),
+            Either::Right((Err(_), _)) => panic!("child task never started"),
+        };
+
+        drop(scope_fut);
+
+        match select(held_rx, Delay::new(Duration::from_secs(1))).await {
+            Either::Left((Err(_), _)) => {}
+            Either::Left((Ok(_), _)) => unreachable!("child never sends a value"),
+            Either::Right(_) => panic!("child remained detached after scope cancellation"),
+        }
     }
 }

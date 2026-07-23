@@ -19,9 +19,7 @@ use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll};
 
-pub use crate::scoped::{
-    JoinError as ScopedJoinError, Scope, ScopeExecutor, ScopedJoinHandle,
-};
+pub use crate::scoped::{JoinError as ScopedJoinError, Scope, ScopeExecutor, ScopedJoinHandle};
 
 #[cfg(all(
     not(feature = "threadpool"),
@@ -662,7 +660,7 @@ pub trait Executor {
     /// ```
     fn scope<'env, F, T>(&self, f: F) -> impl Future<Output = T>
     where
-        F: AsyncFnOnce(&Scope<'env>) -> T,
+        F: for<'scope> AsyncFnOnce(&'scope Scope<'scope, 'env>) -> T,
     {
         scoped::scope(f)
     }

@@ -13,7 +13,7 @@
 //! borrow is released before the stack frame goes away.
 
 use crate::{
-    AbortableJoinHandle, CommunicationTask, Executor, InnerJoinHandle, JoinHandle,
+    AbortableJoinHandle, CommunicationTask, CompletionGuard, Executor, InnerJoinHandle, JoinHandle,
     UnboundedCommunicationTask,
 };
 use core::future::{Future, poll_fn};
@@ -24,14 +24,16 @@ use futures::channel::mpsc::{Receiver, UnboundedReceiver};
 use futures::channel::oneshot;
 use futures::future::{AbortHandle, Abortable, BoxFuture};
 use futures::stream::FuturesUnordered;
+use futures::task::AtomicWaker;
 use futures::{FutureExt, StreamExt};
 use parking_lot::Mutex;
-use std::sync::{Arc, Weak};
-use std::sync::atomic::AtomicBool;
 use pollable_map::optional::Optional;
+use std::sync::atomic::AtomicBool;
+use std::sync::{Arc, Weak};
 
 struct ScopeState<'scope> {
     inbox: Mutex<Vec<BoxFuture<'scope, ()>>>,
+    waker: AtomicWaker,
 }
 
 /// A scope within which tasks can be spawned that borrow from the enclosing
@@ -54,6 +56,7 @@ impl<'scope, 'env> Scope<'scope, 'env> {
     fn push(&self, task: BoxFuture<'scope, ()>) {
         if let Some(state) = self.state.upgrade() {
             state.inbox.lock().push(task);
+            state.waker.wake();
         }
     }
 
@@ -94,8 +97,11 @@ impl<'scope, 'env> Scope<'scope, 'env> {
         let (abort_handle, abort_reg) = AbortHandle::new_pair();
         let abortable = Abortable::new(fut, abort_reg);
         let (tx, rx) = oneshot::channel();
+        let finished = Arc::new(AtomicBool::new(false));
+        let completion = CompletionGuard::new(finished.clone());
 
         let wrapped: BoxFuture<'scope, ()> = async move {
+            let _completion = completion;
             let val = abortable.await;
             let _ = tx.send(val);
         }
@@ -106,7 +112,7 @@ impl<'scope, 'env> Scope<'scope, 'env> {
             inner: InnerJoinHandle::CustomHandle {
                 inner: Optional::new(rx),
                 handle: abort_handle,
-                finished: Arc::new(AtomicBool::new(false)),
+                finished,
             },
         };
         AbortableJoinHandle::from(join)
@@ -339,15 +345,22 @@ fn drive_scope<'scope>(
 ) -> (bool, bool) {
     let mut made_progress = false;
     loop {
+        state.waker.register(cx.waker());
+
         // Take the queued tasks while holding the lock only long enough to
         // swap the inbox, never while polling user code.
         let incoming = std::mem::take(&mut *state.inbox.lock());
         active.extend(incoming);
         match active.poll_next_unpin(cx) {
             Poll::Ready(Some(())) => made_progress = true,
-            Poll::Ready(None) => return (made_progress, true),
+            Poll::Ready(None) => {
+                state.waker.register(cx.waker());
+                if state.inbox.lock().is_empty() {
+                    return (made_progress, true);
+                }
+            }
             Poll::Pending => {
-                // A child may have spawned another task during its poll.
+                state.waker.register(cx.waker());
                 if state.inbox.lock().is_empty() {
                     return (made_progress, false);
                 }
@@ -432,6 +445,7 @@ where
     let mut scope = Scope::new();
     let state = Arc::new(ScopeState {
         inbox: Mutex::new(Vec::new()),
+        waker: AtomicWaker::new(),
     });
     scope.state = Arc::downgrade(&state);
     // The active task set lives on the driver, not inside `Scope`. Only
@@ -523,7 +537,10 @@ where
         let (abort_handle, abort_registration) = AbortHandle::new_pair();
         let abortable = Abortable::new(future, abort_registration);
         let (tx, rx) = oneshot::channel();
+        let finished = Arc::new(AtomicBool::new(false));
+        let completion = CompletionGuard::new(finished.clone());
         let wrapped = async move {
+            let _completion = completion;
             let val = abortable.await;
             let _ = tx.send(val);
         };
@@ -537,7 +554,7 @@ where
             inner: InnerJoinHandle::CustomHandle {
                 inner: Optional::new(rx),
                 handle: abort_handle,
-                finished: Arc::new(AtomicBool::new(false)),
+                finished,
             },
         }
     }
@@ -653,6 +670,101 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn abortable_handle_reports_completion_without_being_polled() {
+        scope(async |s: &Scope<'_, '_>| {
+            let handle = s.spawn_abortable(async {});
+
+            // Yield the user future so the cooperative driver can complete
+            // the child without polling its join handle.
+            crate::task::yield_now().await;
+
+            assert!(handle.is_finished());
+        })
+        .await;
+    }
+
+    #[test]
+    fn pushing_task_wakes_scope_driver() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        use std::task::{Wake, Waker};
+
+        struct WakeCounter(AtomicUsize);
+
+        impl Wake for WakeCounter {
+            fn wake(self: Arc<Self>) {
+                self.0.fetch_add(1, Ordering::SeqCst);
+            }
+
+            fn wake_by_ref(self: &Arc<Self>) {
+                self.0.fetch_add(1, Ordering::SeqCst);
+            }
+        }
+
+        let mut scope = Scope::new();
+        let state = Arc::new(ScopeState {
+            inbox: Mutex::new(Vec::new()),
+            waker: AtomicWaker::new(),
+        });
+        scope.state = Arc::downgrade(&state);
+
+        let wake_counter = Arc::new(WakeCounter(AtomicUsize::new(0)));
+        let waker = Waker::from(wake_counter.clone());
+        state.waker.register(&waker);
+
+        let scope_ref = &scope;
+        scope.push(
+            async move {
+                // Consume the driver's registered waker while tasks are
+                // being polled, forcing drive_scope to register it again.
+                scope_ref.push(async {}.boxed());
+            }
+            .boxed(),
+        );
+
+        assert_eq!(state.inbox.lock().len(), 1);
+        assert_eq!(wake_counter.0.load(Ordering::SeqCst), 1);
+
+        let mut active = FuturesUnordered::new();
+        let mut context = Context::from_waker(&waker);
+        let (_, empty) = drive_scope(&mut active, &state, &mut context);
+        assert!(empty);
+        assert_eq!(wake_counter.0.load(Ordering::SeqCst), 2);
+
+        // The nested push consumed the previous registration. This push
+        // only wakes the driver if drive_scope registered again afterward.
+        scope.push(async {}.boxed());
+        assert_eq!(wake_counter.0.load(Ordering::SeqCst), 3);
+
+        let (_, empty) = drive_scope(&mut active, &state, &mut context);
+        assert!(empty);
+
+        let state_ref = Arc::downgrade(&state);
+        scope.push(
+            poll_fn(move |_cx| {
+                // Model a push that occurs after registration but before
+                // the inbox is drained: its wake is consumed, then the
+                // newly active task returns Pending.
+                state_ref.upgrade().unwrap().waker.wake();
+                Poll::<()>::Pending
+            })
+            .boxed(),
+        );
+        assert_eq!(wake_counter.0.load(Ordering::SeqCst), 4);
+
+        let (_, empty) = drive_scope(&mut active, &state, &mut context);
+        assert!(!empty);
+        let wakes_after_pending = wake_counter.0.load(Ordering::SeqCst);
+        assert!(wakes_after_pending > 4);
+
+        // The Pending path must have registered once more before returning.
+        scope.push(async {}.boxed());
+        assert_eq!(
+            wake_counter.0.load(Ordering::SeqCst),
+            wakes_after_pending + 1
+        );
+    }
+
+    #[tokio::test]
     async fn many_concurrent_tasks_complete() {
         use std::sync::atomic::{AtomicUsize, Ordering};
         let counter = AtomicUsize::new(0);
@@ -723,6 +835,28 @@ mod tests {
             })
             .await;
         assert_eq!(total, 10);
+    }
+
+    #[cfg(feature = "tokio")]
+    #[tokio::test(flavor = "current_thread")]
+    async fn executor_scope_handle_reports_completion_without_being_polled() {
+        use crate::rt::tokio::TokioExecutor;
+
+        let executor = TokioExecutor;
+        executor
+            .executor_scope(async |s| {
+                let (completed_tx, completed_rx) = oneshot::channel();
+                let handle = s.spawn(async move {
+                    let _ = completed_tx.send(());
+                });
+
+                completed_rx.await.unwrap();
+
+                // On the current-thread runtime, the spawned wrapper finishes
+                // before the task it woke can be polled again.
+                assert!(handle.is_finished());
+            })
+            .await;
     }
 
     #[tokio::test]

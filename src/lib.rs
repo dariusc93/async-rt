@@ -652,9 +652,8 @@ pub trait Executor {
     /// that borrow from the enclosing stack frame.
     ///
     /// Unlike [`Executor::spawn`], tasks spawned on the [`Scope`] are driven
-    /// cooperatively by the returned future — they make progress whenever
-    /// the scope is polled — so they may borrow any data that outlives the
-    /// `'env` lifetime. Every task is either completed or cancelled before
+    /// cooperatively by the returned future so they may borrow any data that outlives
+    /// the `'env` lifetime. Every task is either completed or canceled before
     /// `scope` returns, so borrows never outlive the stack frame.
     ///
     /// This is the async analogue of [`std::thread::scope`].

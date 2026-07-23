@@ -7,6 +7,7 @@ pub mod tracker;
 #[cfg(feature = "either")]
 pub mod either;
 pub mod rc;
+pub mod scoped;
 
 use std::fmt::{Debug, Formatter};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -19,6 +20,8 @@ use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll};
+
+pub use crate::scoped::{JoinError as ScopedJoinError, Scope, ScopeExecutor, ScopedJoinHandle};
 
 #[cfg_attr(feature = "tokio", allow(dead_code))]
 pub(crate) struct CompletionGuard {
@@ -285,6 +288,16 @@ impl<T> Debug for CommunicationTask<T> {
 }
 
 impl<T> CommunicationTask<T> {
+    pub(crate) fn new(
+        task_handle: AbortableJoinHandle<()>,
+        channel_tx: futures::channel::mpsc::Sender<T>,
+    ) -> Self {
+        Self {
+            _task_handle: task_handle,
+            _channel_tx: channel_tx,
+        }
+    }
+
     /// Send a message to the task
     pub async fn send(&mut self, data: T) -> std::io::Result<()> {
         self._channel_tx
@@ -335,6 +348,16 @@ impl<T> Debug for UnboundedCommunicationTask<T> {
 }
 
 impl<T> UnboundedCommunicationTask<T> {
+    pub(crate) fn new(
+        task_handle: AbortableJoinHandle<()>,
+        channel_tx: futures::channel::mpsc::UnboundedSender<T>,
+    ) -> Self {
+        Self {
+            _task_handle: task_handle,
+            _channel_tx: channel_tx,
+        }
+    }
+
     /// Send a message to task
     pub fn send(&mut self, data: T) -> std::io::Result<()> {
         self._channel_tx
@@ -623,6 +646,83 @@ pub trait Executor {
             _task_handle,
             _channel_tx: tx,
         }
+    }
+
+    /// Create a structured-concurrency scope in which tasks may be spawned
+    /// that borrow from the enclosing stack frame.
+    ///
+    /// Unlike [`Executor::spawn`], tasks spawned on the [`Scope`] are driven
+    /// cooperatively by the returned future so they may borrow any data that outlives
+    /// the `'env` lifetime. Every task is either completed or canceled before
+    /// `scope` returns, so borrows never outlive the stack frame.
+    ///
+    /// This is the async analogue of [`std::thread::scope`].
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// # async fn run() {
+    /// use async_rt::Executor;
+    /// use async_rt::rt::tokio::TokioExecutor;
+    ///
+    /// let executor = TokioExecutor;
+    /// let data = vec![1, 2, 3, 4];
+    /// let sum = executor
+    ///     .scope(async |s| {
+    ///         let a = s.spawn(async { data[0] + data[1] });
+    ///         let b = s.spawn(async { data[2] + data[3] });
+    ///         a.await.unwrap() + b.await.unwrap()
+    ///     })
+    ///     .await;
+    /// assert_eq!(sum, 10);
+    /// # }
+    /// ```
+    fn scope<'env, F, T>(&self, f: F) -> impl Future<Output = T>
+    where
+        F: for<'scope> AsyncFnOnce(&'scope Scope<'scope, 'env>) -> T,
+    {
+        scoped::scope(f)
+    }
+
+    /// Run an async closure with a scoped [`Executor`] wrapper that
+    /// forwards spawns to this executor, waits for all spawned tasks
+    /// to finish when the closure returns, and aborts any outstanding
+    /// tasks if the scope future itself is cancelled.
+    ///
+    /// Unlike [`Executor::scope`], tasks run on the real executor (so
+    /// they get real parallelism) but must be `Send + 'static`.
+    ///
+    /// # Panics in spawned tasks
+    ///
+    /// Panics inside tasks spawned via this scope are **not** propagated
+    /// to the caller. See [`scoped::executor_scope`] for details on
+    /// per-backend behaviour. If you need to react to a task panic,
+    /// await its [`JoinHandle`] directly.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// # async fn run() {
+    /// use async_rt::Executor;
+    /// use async_rt::rt::tokio::TokioExecutor;
+    ///
+    /// let executor = TokioExecutor;
+    /// let total = executor
+    ///     .executor_scope(async |s| {
+    ///         let a = s.spawn(async { 1 + 2 });
+    ///         let b = s.spawn(async { 3 + 4 });
+    ///         a.await.unwrap() + b.await.unwrap()
+    ///     })
+    ///     .await;
+    /// assert_eq!(total, 10);
+    /// # }
+    /// ```
+    fn executor_scope<'scope, F, T>(&'scope self, f: F) -> impl Future<Output = T>
+    where
+        Self: Sized,
+        F: AsyncFnOnce(&ScopeExecutor<'scope, Self>) -> T,
+    {
+        scoped::executor_scope(self, f)
     }
 }
 

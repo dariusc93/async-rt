@@ -2,7 +2,7 @@ use crate::{Executor, ExecutorBlocking, InnerJoinHandle, JoinHandle};
 use pollable_map::optional::Optional;
 use std::future::Future;
 use std::sync::Arc;
-use tokio::runtime::Runtime;
+use tokio::runtime::{Handle, Runtime};
 
 /// Tokio executor
 #[derive(Clone, Copy, Debug, PartialOrd, PartialEq, Eq)]
@@ -35,7 +35,8 @@ impl ExecutorBlocking for TokioExecutor {
 /// Tokio executor with an explicit [`Runtime`]
 #[derive(Clone, Debug)]
 pub struct TokioRuntimeExecutor {
-    runtime: Arc<Runtime>,
+    handle: Handle,
+    _runtime: Option<Arc<Runtime>>,
 }
 
 impl TokioRuntimeExecutor {
@@ -56,9 +57,36 @@ impl TokioRuntimeExecutor {
     }
 
     /// Create an executor with the supplied [`Runtime`].
+    ///
+    /// Note that the runtime remains alive until the final clone of this executor is
+    /// dropped.
     pub fn with_runtime(runtime: Runtime) -> Self {
         let runtime = Arc::new(runtime);
-        Self { runtime }
+        let handle = runtime.handle().clone();
+        Self {
+            _runtime: Some(runtime),
+            handle,
+        }
+    }
+
+    /// Create an executor with the supplied [`Runtime`].
+    ///
+    /// Note that this executor does not own or keep the associated runtime alive. The
+    /// runtime must remain running for spawned tasks to execute.
+    pub fn with_handle(handle: Handle) -> Self {
+        Self {
+            handle,
+            _runtime: None,
+        }
+    }
+
+    /// Create an executor from the existing Runtime
+    ///
+    /// Note that this returns an error when called outside a Tokio runtime context. The
+    /// resulting executor does not prevent that runtime from shutting down.
+    pub fn from_current_handle() -> std::io::Result<Self> {
+        let handle = Handle::try_current().map_err(std::io::Error::other)?;
+        Ok(Self::with_handle(handle))
     }
 }
 
@@ -68,7 +96,7 @@ impl Executor for TokioRuntimeExecutor {
         F: Future + Send + 'static,
         F::Output: Send + 'static,
     {
-        let handle = self.runtime.spawn(future);
+        let handle = self.handle.spawn(future);
         let inner = InnerJoinHandle::TokioHandle(Optional::new(handle));
         JoinHandle { inner }
     }
@@ -80,7 +108,7 @@ impl ExecutorBlocking for TokioRuntimeExecutor {
         F: FnOnce() -> R + Send + 'static,
         R: Send + 'static,
     {
-        let handle = self.runtime.spawn_blocking(f);
+        let handle = self.handle.spawn_blocking(f);
         let inner = InnerJoinHandle::TokioHandle(Optional::new(handle));
         JoinHandle { inner }
     }

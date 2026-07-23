@@ -111,18 +111,35 @@ impl<E: ExecutorBlocking> ExecutorBlocking for TrackerExecutor<E> {
 
 #[cfg(test)]
 mod tests {
-    use super::TrackerExecutor;
-    use crate::Executor;
-    use crate::rt::tokio::TokioExecutor;
 
+    #[cfg(feature = "threadpool")]
+    #[test]
+    fn test_tracker_threadpool_executor() {
+        use super::TrackerExecutor;
+        use crate::Executor;
+        use crate::rt::threadpool::ThreadPoolExecutor;
+        futures::executor::block_on(async {
+            let executor = TrackerExecutor::new(ThreadPoolExecutor);
+            let handle = executor.spawn(futures::future::pending::<()>());
+            assert_eq!(executor.count(), 1);
+            handle.abort();
+            let _ = handle.await;
+            assert_eq!(executor.count(), 0);
+        });
+    }
+
+    #[cfg(feature = "tokio")]
     #[tokio::test]
-    async fn test_tracker_executor() {
-        let executor = TrackerExecutor::new(TokioExecutor);
+    async fn test_tracker_tokio_executor() {
+        use super::TrackerExecutor;
+        use crate::Executor;
+        use crate::rt::tokio::TokioRuntimeExecutor;
+
+        let executor = TrackerExecutor::new(TokioRuntimeExecutor::from_current_handle().unwrap());
         let handle = executor.spawn(futures::future::pending::<()>());
         assert_eq!(executor.count(), 1);
         handle.abort();
-        // We yield back to the runtime to allow progress to be made after aborting the task.
-        crate::task::yield_now().await;
+        let _ = handle.await;
         assert_eq!(executor.count(), 0);
     }
 }

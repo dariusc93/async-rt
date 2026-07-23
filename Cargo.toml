@@ -17,6 +17,7 @@ A small library designed to utilize async executors through an common API while 
 [features]
 default = ["tokio"]
 threadpool = ["futures/thread-pool"]
+tokio = ["dep:tokio"]
 
 [dependencies]
 futures = { version = "0.3.31", default-features = false, features = ["std", "alloc", "async-await"] }

@@ -308,9 +308,8 @@ impl<T> CommunicationTask<T> {
     }
 
     /// Attempts to send a message to the task, returning an error if the channel is full or closed due to the task being aborted.
-    pub fn try_send(&self, data: T) -> std::io::Result<()> {
+    pub fn try_send(&mut self, data: T) -> std::io::Result<()> {
         self._channel_tx
-            .clone()
             .try_send(data)
             .map_err(|e| std::io::Error::other(e.to_string()))
     }

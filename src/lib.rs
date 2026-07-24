@@ -130,22 +130,27 @@ impl<T> JoinHandle<T> {
         }
     }
 
-    /// Replace the current handle with the provided [`JoinHandle`].
+    /// Replace the current handle with the provided [`JoinHandle`], while dropping the source.
     ///
     /// # Warning
     ///
     /// Note that if this is called with a non-empty handle, the existing task
-    /// will not be terminated when it is replaced.
+    /// will not be terminated when it is replaced and could run indefinitely.
+    /// Best to use when `JoinHandle` is `JoinHandle::empty` where empty is a used
+    /// placeholder.
     pub fn replace(&mut self, mut handle: JoinHandle<T>) {
         self.inner = std::mem::take(&mut handle.inner);
     }
 
-    /// Replace the current handle with the provided [`JoinHandle`].
+    /// Replace the current handle with the provided [`JoinHandle`], making the source become
+    /// an equivalent to [`JoinHandle::empty`].
     ///
     /// # Warning
     ///
     /// Note that if this is called with a non-empty handle, the existing task
-    /// will not be terminated when it is replaced.
+    /// will not be terminated when it is replaced and could run indefinitely.
+    /// Best to use when `JoinHandle` is `JoinHandle::empty` where empty is a used
+    /// placeholder, and you want to update the source later with another task handle.
     pub fn replace_in_place(&mut self, handle: &mut JoinHandle<T>) {
         self.inner = std::mem::take(&mut handle.inner);
     }
@@ -242,7 +247,7 @@ impl<T> AbortableJoinHandle<T> {
     ///
     /// Note that if this is called with a non-empty handle, the existing task
     /// will not be terminated when it is replaced.
-    pub fn replace(&mut self, other: AbortableJoinHandle<T>) {
+    pub fn replace(&self, other: AbortableJoinHandle<T>) {
         if Arc::ptr_eq(&self.handle, &other.handle) {
             return;
         }
@@ -776,6 +781,40 @@ mod tests {
         futures_timer::Delay::new(std::time::Duration::from_secs(5)).await;
         let _ = tx.send(());
         unreachable!();
+    }
+
+    #[cfg(all(feature = "tokio", not(target_arch = "wasm32")))]
+    #[tokio::test]
+    async fn replacing_handle_wakes_pending_clone() {
+        use futures::task::{ArcWake, waker_ref};
+        use std::pin::Pin;
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        use std::task::Context;
+
+        struct WakeCounter(AtomicUsize);
+
+        impl ArcWake for WakeCounter {
+            fn wake_by_ref(arc_self: &Arc<Self>) {
+                arc_self.0.fetch_add(1, Ordering::SeqCst);
+            }
+        }
+
+        let executor = crate::rt::tokio::TokioExecutor;
+        let handle = executor.spawn_abortable(futures::future::pending::<usize>());
+        let mut pending_clone = handle.clone();
+
+        let wake_counter = Arc::new(WakeCounter(AtomicUsize::new(0)));
+        let waker = waker_ref(&wake_counter);
+        let mut context = Context::from_waker(&waker);
+
+        assert!(Pin::new(&mut pending_clone).poll(&mut context).is_pending());
+        assert_eq!(wake_counter.0.load(Ordering::SeqCst), 0);
+
+        let replacement = executor.spawn_abortable(async { 42 });
+        handle.replace(replacement);
+
+        assert!(wake_counter.0.load(Ordering::SeqCst) > 0);
+        assert_eq!(pending_clone.await.unwrap(), 42);
     }
 
     #[test]

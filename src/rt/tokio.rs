@@ -32,7 +32,7 @@ impl ExecutorBlocking for TokioExecutor {
     }
 }
 
-/// Tokio executor with an explicit [`Runtime`]
+/// Tokio executor with an [`Runtime`] or [`Handle`]
 #[derive(Clone, Debug)]
 pub struct TokioRuntimeExecutor {
     handle: Handle,

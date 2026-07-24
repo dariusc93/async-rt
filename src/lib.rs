@@ -53,8 +53,9 @@ compile_error!(
 /// An owned permission to join on a task (await its termination).
 ///
 /// This can be seen as an equivalent to [`std::thread::JoinHandle`] but for [`Future`] tasks rather than a thread.
-/// Note that the task associated with this `JoinHandle` will start running at the time [`Executor::spawn`] is called as
-/// well as according to the implemented runtime (i.e. [`tokio`]), even if `JoinHandle` has not been awaited.
+/// Note that the task associated with this `JoinHandle` will start running when
+/// [`Executor::spawn`] is called according to the selected runtime, even if the
+/// `JoinHandle` has not been awaited.
 ///
 /// Dropping `JoinHandle` will not abort or cancel the task. In other words, the task will continue to run in the background
 /// and any return value will be lost.

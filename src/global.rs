@@ -1,10 +1,14 @@
 use crate::{Executor, ExecutorBlocking, JoinHandle};
 use std::future::Future;
 
-/// Executor that switches between [`TokioExecutor`](crate::rt::tokio::TokioExecutor), [`ThreadpoolExecutor`](crate::rt::threadpool::ThreadpoolExecutor) and [`WasmExecutor`](crate::rt::wasm::WasmExecutor) at compile time.
-/// * If the target is non-wasm32 and the "tokio" feature is enabled, [`tokio`] would be used.
-/// * if the target is non-wasm32 and the "threadpool" feature is enabled with [`tokio`] feature disabled, [`futures`] [`ThreadPool`](futures::executor::ThreadPool) will be used.
-/// * If the target is wasm32, [`wasm-bindgen-futures`] would be used.
+/// Executor that selects an available runtime backend at compile time.
+///
+/// * On non-Wasm targets with the `tokio` feature enabled, it uses
+///   `TokioExecutor`.
+/// * On non-Wasm targets with the `threadpool` feature enabled and the `tokio`
+///   feature disabled, it uses `ThreadPoolExecutor`.
+/// * On Wasm targets, it uses `WasmExecutor`, backed by
+///   `wasm-bindgen-futures`.
 #[derive(Clone, Copy, Debug, PartialOrd, PartialEq, Eq)]
 pub struct GlobalExecutor;
 

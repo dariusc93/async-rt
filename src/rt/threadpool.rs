@@ -9,7 +9,7 @@ use std::sync::{Arc, LazyLock};
 
 static THREADPOOL_EXECUTOR: LazyLock<ThreadPool> = LazyLock::new(|| ThreadPool::new().unwrap());
 
-/// Executor that uses [`futures`] [`ThreadPool`](futures::executor::ThreadPool).
+/// Executor backed by [`futures::executor::ThreadPool`].
 ///
 /// Note that this executor will use a global threadpool rather than a per-instance threadpool.
 /// In other words, creating a new instance of `ThreadPoolExecutor` would continue to reuse the existing thread pool.

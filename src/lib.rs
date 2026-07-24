@@ -12,16 +12,16 @@ pub mod scoped;
 use std::fmt::{Debug, Formatter};
 use std::sync::atomic::{AtomicBool, Ordering};
 
+pub use crate::scoped::{JoinError as ScopedJoinError, Scope, ScopeExecutor, ScopedJoinHandle};
 use futures::channel::mpsc::{Receiver, UnboundedReceiver};
 use futures::future::{AbortHandle, Aborted};
+use futures::task::AtomicWaker;
 use futures::{SinkExt, StreamExt};
 use pollable_map::optional::Optional;
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll};
-
-pub use crate::scoped::{JoinError as ScopedJoinError, Scope, ScopeExecutor, ScopedJoinHandle};
 
 #[cfg_attr(feature = "tokio", allow(dead_code))]
 pub(crate) struct CompletionGuard {
@@ -207,6 +207,7 @@ impl<T> From<JoinHandle<T>> for AbortableJoinHandle<T> {
         AbortableJoinHandle {
             handle: Arc::new(InnerHandle {
                 inner: parking_lot::Mutex::new(handle),
+                waker: AtomicWaker::new(),
             }),
         }
     }
@@ -218,6 +219,7 @@ impl<T> AbortableJoinHandle<T> {
         Self {
             handle: Arc::new(InnerHandle {
                 inner: parking_lot::Mutex::new(JoinHandle::empty()),
+                waker: AtomicWaker::new(),
             }),
         }
     }
@@ -240,15 +242,17 @@ impl<T> AbortableJoinHandle<T> {
     ///
     /// Note that if this is called with a non-empty handle, the existing task
     /// will not be terminated when it is replaced.
-    pub fn replace(&mut self, inner: AbortableJoinHandle<T>) {
-        if Arc::ptr_eq(&self.handle, &inner.handle) {
+    pub fn replace(&mut self, other: AbortableJoinHandle<T>) {
+        if Arc::ptr_eq(&self.handle, &other.handle) {
             return;
         }
 
         let replacement = {
-            let mut source = inner.handle.inner.lock();
+            let mut source = other.handle.inner.lock();
             std::mem::replace(&mut *source, JoinHandle::empty())
         };
+
+        other.handle.wake();
 
         let previous = {
             let mut destination = self.handle.inner.lock();
@@ -256,11 +260,14 @@ impl<T> AbortableJoinHandle<T> {
         };
 
         drop(previous);
+
+        self.handle.wake();
     }
 }
 
 struct InnerHandle<T> {
     pub inner: parking_lot::Mutex<JoinHandle<T>>,
+    pub waker: AtomicWaker,
 }
 
 impl<T> Drop for InnerHandle<T> {
@@ -269,9 +276,16 @@ impl<T> Drop for InnerHandle<T> {
     }
 }
 
+impl<T> InnerHandle<T> {
+    pub fn wake(&self) {
+        self.waker.wake();
+    }
+}
+
 impl<T> Future for AbortableJoinHandle<T> {
     type Output = std::io::Result<T>;
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        self.handle.waker.register(cx.waker());
         let inner = &mut *self.handle.inner.lock();
         Pin::new(inner).poll(cx).map_err(std::io::Error::other)
     }

@@ -1,5 +1,7 @@
-use crate::{CompletionGuard, Executor, ExecutorBlocking, InnerJoinHandle, JoinHandle};
-use futures::future::{AbortHandle, Abortable};
+use crate::{
+    CompletionGuard, Executor, ExecutorBlocking, InnerJoinHandle, JoinHandle, abortable_result,
+};
+use futures::future::AbortHandle;
 use pollable_map::optional::Optional;
 use std::future::Future;
 use std::sync::Arc;
@@ -16,7 +18,7 @@ impl Executor for WasmExecutor {
         F::Output: Send + 'static,
     {
         let (abort_handle, abort_registration) = AbortHandle::new_pair();
-        let future = Abortable::new(future, abort_registration);
+        let future = abortable_result(future, abort_registration);
         let (tx, rx) = futures::channel::oneshot::channel();
         let finished = Arc::new(AtomicBool::new(false));
         let completion = CompletionGuard::new(finished.clone());

@@ -1,4 +1,5 @@
 pub mod arc;
+pub mod error;
 pub mod global;
 pub mod rt;
 pub mod task;
@@ -10,13 +11,15 @@ pub mod rc;
 pub mod scoped;
 
 use std::fmt::{Debug, Formatter};
+use std::panic::AssertUnwindSafe;
 use std::sync::atomic::{AtomicBool, Ordering};
 
+use crate::error::JoinError;
 pub use crate::scoped::{JoinError as ScopedJoinError, Scope, ScopeExecutor, ScopedJoinHandle};
 use futures::channel::mpsc::{Receiver, UnboundedReceiver};
-use futures::future::{AbortHandle, Aborted};
+use futures::future::{AbortHandle, AbortRegistration, Abortable};
 use futures::task::AtomicWaker;
-use futures::{SinkExt, StreamExt};
+use futures::{FutureExt, SinkExt, StreamExt};
 use pollable_map::optional::Optional;
 use std::future::Future;
 use std::pin::Pin;
@@ -38,6 +41,22 @@ impl CompletionGuard {
 impl Drop for CompletionGuard {
     fn drop(&mut self) {
         self.finished.store(true, Ordering::Release);
+    }
+}
+
+pub(crate) async fn abortable_result<F>(
+    future: F,
+    abort_registration: AbortRegistration,
+) -> Result<F::Output, JoinError>
+where
+    F: Future,
+{
+    let future = AssertUnwindSafe(future).catch_unwind();
+
+    match Abortable::new(future, abort_registration).await {
+        Ok(Ok(value)) => Ok(value),
+        Ok(Err(_)) => Err(JoinError::Panicked),
+        Err(_) => Err(JoinError::Aborted),
     }
 }
 
@@ -76,7 +95,7 @@ enum InnerJoinHandle<T> {
     TokioHandle(Optional<::tokio::task::JoinHandle<T>>),
     #[allow(dead_code)]
     CustomHandle {
-        inner: Optional<futures::channel::oneshot::Receiver<Result<T, Aborted>>>,
+        inner: Optional<futures::channel::oneshot::Receiver<Result<T, JoinError>>>,
         handle: AbortHandle,
         finished: Arc<AtomicBool>,
     },
@@ -157,7 +176,7 @@ impl<T> JoinHandle<T> {
 }
 
 impl<T> Future for JoinHandle<T> {
-    type Output = std::io::Result<T>;
+    type Output = Result<T, JoinError>;
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         let inner = &mut self.inner;
         match inner {
@@ -167,29 +186,17 @@ impl<T> Future for JoinHandle<T> {
 
                 match fut {
                     Ok(val) => Poll::Ready(Ok(val)),
-                    Err(e) => {
-                        let e = std::io::Error::other(e);
-                        Poll::Ready(Err(e))
-                    }
+                    Err(e) => Poll::Ready(Err(e.into())),
                 }
             }
             InnerJoinHandle::CustomHandle { inner, .. } => {
                 let fut = futures::ready!(Pin::new(inner).poll(cx));
                 match fut {
-                    Ok(Ok(val)) => Poll::Ready(Ok(val)),
-                    Ok(Err(e)) => {
-                        let e = std::io::Error::other(e);
-                        Poll::Ready(Err(e))
-                    }
-                    Err(e) => {
-                        let e = std::io::Error::other(e);
-                        Poll::Ready(Err(e))
-                    }
+                    Ok(result) => Poll::Ready(result),
+                    Err(_) => Poll::Ready(Err(JoinError::Cancelled)),
                 }
             }
-            InnerJoinHandle::Empty => {
-                Poll::Ready(Err(std::io::Error::from(std::io::ErrorKind::Other)))
-            }
+            InnerJoinHandle::Empty => Poll::Ready(Err(JoinError::Empty)),
         }
     }
 }
@@ -288,11 +295,11 @@ impl<T> InnerHandle<T> {
 }
 
 impl<T> Future for AbortableJoinHandle<T> {
-    type Output = std::io::Result<T>;
+    type Output = Result<T, JoinError>;
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         self.handle.waker.register(cx.waker());
         let inner = &mut *self.handle.inner.lock();
-        Pin::new(inner).poll(cx).map_err(std::io::Error::other)
+        Pin::new(inner).poll(cx)
     }
 }
 
@@ -819,7 +826,6 @@ mod tests {
 
     #[test]
     fn custom_abortable_task() {
-        use futures::future::Abortable;
         struct FuturesExecutor {
             pool: futures::executor::ThreadPool,
         }
@@ -839,7 +845,7 @@ mod tests {
                 F::Output: Send + 'static,
             {
                 let (abort_handle, abort_registration) = AbortHandle::new_pair();
-                let future = Abortable::new(future, abort_registration);
+                let future = crate::abortable_result(future, abort_registration);
                 let (tx, rx) = futures::channel::oneshot::channel();
 
                 let fin = Arc::new(AtomicBool::new(false));

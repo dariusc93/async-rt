@@ -14,7 +14,7 @@
 
 use crate::{
     AbortableJoinHandle, CommunicationTask, CompletionGuard, Executor, InnerJoinHandle, JoinHandle,
-    UnboundedCommunicationTask,
+    UnboundedCommunicationTask, abortable_result,
 };
 use core::future::{Future, poll_fn};
 use core::marker::PhantomData;
@@ -22,7 +22,7 @@ use core::pin::Pin;
 use core::task::{Context, Poll};
 use futures::channel::mpsc::{Receiver, UnboundedReceiver};
 use futures::channel::oneshot;
-use futures::future::{AbortHandle, Abortable, BoxFuture};
+use futures::future::{AbortHandle, BoxFuture};
 use futures::stream::FuturesUnordered;
 use futures::task::AtomicWaker;
 use futures::{FutureExt, StreamExt};
@@ -95,7 +95,7 @@ impl<'scope, 'env> Scope<'scope, 'env> {
         Fut::Output: Send + 'scope,
     {
         let (abort_handle, abort_reg) = AbortHandle::new_pair();
-        let abortable = Abortable::new(fut, abort_reg);
+        let abortable = abortable_result(fut, abort_reg);
         let (tx, rx) = oneshot::channel();
         let finished = Arc::new(AtomicBool::new(false));
         let completion = CompletionGuard::new(finished.clone());
@@ -535,7 +535,7 @@ where
         F::Output: Send + 'static,
     {
         let (abort_handle, abort_registration) = AbortHandle::new_pair();
-        let abortable = Abortable::new(future, abort_registration);
+        let abortable = abortable_result(future, abort_registration);
         let (tx, rx) = oneshot::channel();
         let finished = Arc::new(AtomicBool::new(false));
         let completion = CompletionGuard::new(finished.clone());

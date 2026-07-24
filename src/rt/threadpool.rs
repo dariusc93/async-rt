@@ -1,6 +1,8 @@
-use crate::{CompletionGuard, Executor, ExecutorBlocking, InnerJoinHandle, JoinHandle};
+use crate::{
+    CompletionGuard, Executor, ExecutorBlocking, InnerJoinHandle, JoinHandle, abortable_result,
+};
 use futures::executor::ThreadPool;
-use futures::future::{AbortHandle, Abortable};
+use futures::future::AbortHandle;
 use pollable_map::optional::Optional;
 use std::fmt::{Debug, Formatter};
 use std::future::Future;
@@ -29,7 +31,7 @@ impl Executor for ThreadPoolExecutor {
         F::Output: Send + 'static,
     {
         let (abort_handle, abort_registration) = AbortHandle::new_pair();
-        let future = Abortable::new(future, abort_registration);
+        let future = abortable_result(future, abort_registration);
         let (tx, rx) = futures::channel::oneshot::channel();
         let finished = Arc::new(AtomicBool::new(false));
         let completion = CompletionGuard::new(finished.clone());
@@ -71,6 +73,7 @@ impl ExecutorBlocking for ThreadPoolExecutor {
 #[cfg(test)]
 mod tests {
     use super::ThreadPoolExecutor;
+    use crate::error::JoinError;
     use crate::{Executor, ExecutorBlocking};
     use futures::channel::mpsc::{Receiver, UnboundedReceiver};
 
@@ -78,6 +81,18 @@ mod tests {
         futures_timer::Delay::new(std::time::Duration::from_secs(5)).await;
         let _ = tx.send(());
         unreachable!();
+    }
+
+    #[cfg(panic = "unwind")]
+    #[test]
+    fn task_panic_is_classified() {
+        async fn panic_task() -> usize {
+            panic!("expected task panic");
+        }
+
+        let result = futures::executor::block_on(ThreadPoolExecutor.spawn(panic_task()));
+
+        assert!(matches!(result, Err(JoinError::Panicked)));
     }
 
     #[test]

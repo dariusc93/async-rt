@@ -132,21 +132,21 @@ impl<T> JoinHandle<T> {
 
     /// Replace the current handle with the provided [`JoinHandle`].
     ///
-    /// # Safety
+    /// # Warning
     ///
     /// Note that if this is called with a non-empty handle, the existing task
     /// will not be terminated when it is replaced.
-    pub unsafe fn replace(&mut self, mut handle: JoinHandle<T>) {
+    pub fn replace(&mut self, mut handle: JoinHandle<T>) {
         self.inner = std::mem::take(&mut handle.inner);
     }
 
     /// Replace the current handle with the provided [`JoinHandle`].
     ///
-    /// # Safety
+    /// # Warning
     ///
     /// Note that if this is called with a non-empty handle, the existing task
     /// will not be terminated when it is replaced.
-    pub unsafe fn replace_in_place(&mut self, handle: &mut JoinHandle<T>) {
+    pub fn replace_in_place(&mut self, handle: &mut JoinHandle<T>) {
         self.inner = std::mem::take(&mut handle.inner);
     }
 }
@@ -236,16 +236,26 @@ impl<T> AbortableJoinHandle<T> {
 
     /// Replace the current handle with an existing one.
     ///
-    /// # Safety
+    /// # Warning
     ///
     /// Note that if this is called with a non-empty handle, the existing task
     /// will not be terminated when it is replaced.
-    pub unsafe fn replace(&mut self, inner: AbortableJoinHandle<T>) {
-        let current_handle = &mut *self.handle.inner.lock();
-        let inner_handle = &mut *inner.handle.inner.lock();
-        unsafe {
-            current_handle.replace_in_place(inner_handle);
+    pub fn replace(&mut self, inner: AbortableJoinHandle<T>) {
+        if Arc::ptr_eq(&self.handle, &inner.handle) {
+            return;
         }
+
+        let replacement = {
+            let mut source = inner.handle.inner.lock();
+            std::mem::replace(&mut *source, JoinHandle::empty())
+        };
+
+        let previous = {
+            let mut destination = self.handle.inner.lock();
+            std::mem::replace(&mut *destination, replacement)
+        };
+
+        drop(previous);
     }
 }
 

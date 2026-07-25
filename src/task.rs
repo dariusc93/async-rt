@@ -1,14 +1,14 @@
 use crate::global::GlobalExecutor;
 use crate::{
-    AbortableJoinHandle, CommunicationTask, Executor, ExecutorBlocking, JoinHandle,
-    UnboundedCommunicationTask,
+    AbortableJoinHandle, CommunicationTask, Executor, ExecutorBlocking, JoinHandle, Scope,
+    ScopeExecutor, UnboundedCommunicationTask,
 };
 use futures::channel::mpsc::{Receiver, UnboundedReceiver};
 use std::future::Future;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
-const EXECUTOR: GlobalExecutor = GlobalExecutor;
+static EXECUTOR: GlobalExecutor = GlobalExecutor;
 
 /// Spawns a new asynchronous task in the background, returning a Future [`JoinHandle`] for it.
 pub fn spawn<F>(future: F) -> JoinHandle<F::Output>
@@ -213,6 +213,28 @@ where
     Fut: Future<Output = ()> + Send + 'static,
 {
     EXECUTOR.spawn_unbounded_coroutine_with_receiver_and_context(context, f)
+}
+
+/// Create a structured-concurrency scope in which tasks may be spawned
+/// that borrow from the enclosing stack frame.
+///
+/// This is the async analogue of [`std::thread::scope`].
+pub fn scope<'env, F, T>(f: F) -> impl Future<Output = T>
+where
+    F: for<'scope> AsyncFnOnce(&'scope Scope<'scope, 'env>) -> T,
+{
+    EXECUTOR.scope(f)
+}
+
+/// Run an async closure with a scoped [`Executor`] wrapper that
+/// forwards spawns to this executor, waits for all spawned tasks
+/// to finish when the closure returns, and aborts any outstanding
+/// tasks if the scope future itself is cancelled.
+pub fn executor_scope<F, T>(f: F) -> impl Future<Output = T>
+where
+    F: AsyncFnOnce(&ScopeExecutor<'static, GlobalExecutor>) -> T,
+{
+    EXECUTOR.executor_scope(f)
 }
 
 #[derive(Default)]

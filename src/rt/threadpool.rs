@@ -96,6 +96,18 @@ mod tests {
     }
 
     #[test]
+    fn explicit_abort_is_reported_as_aborted() {
+        let handle = ThreadPoolExecutor.spawn(futures::future::pending::<()>());
+
+        handle.abort();
+
+        assert!(matches!(
+            futures::executor::block_on(handle),
+            Err(JoinError::Aborted)
+        ));
+    }
+
+    #[test]
     fn default_abortable_task() {
         let executor = ThreadPoolExecutor::default();
 

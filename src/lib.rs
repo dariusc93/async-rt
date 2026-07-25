@@ -92,7 +92,10 @@ impl<T> Debug for JoinHandle<T> {
 
 enum InnerJoinHandle<T> {
     #[cfg(all(feature = "tokio", not(target_arch = "wasm32")))]
-    TokioHandle(Optional<::tokio::task::JoinHandle<T>>),
+    TokioHandle {
+        handle: Optional<::tokio::task::JoinHandle<T>>,
+        abort_requested: AtomicBool,
+    },
     #[allow(dead_code)]
     CustomHandle {
         inner: Optional<futures::channel::oneshot::Receiver<Result<T, JoinError>>>,
@@ -108,6 +111,16 @@ impl<T> Default for InnerJoinHandle<T> {
     }
 }
 
+impl<T> InnerJoinHandle<T> {
+    #[cfg(all(feature = "tokio", not(target_arch = "wasm32")))]
+    fn tokio(handle: ::tokio::task::JoinHandle<T>) -> Self {
+        Self::TokioHandle {
+            handle: Optional::new(handle),
+            abort_requested: AtomicBool::new(false),
+        }
+    }
+}
+
 impl<T> JoinHandle<T> {
     /// Provide an empty [`JoinHandle`] with no associated task.
     pub fn empty() -> Self {
@@ -119,11 +132,19 @@ impl<T> JoinHandle<T> {
 
 impl<T> JoinHandle<T> {
     /// Abort the task associated with the handle.
+    ///
+    /// If cancellation is observed after this method is called, awaiting the
+    /// handle returns [`JoinError::Aborted`]. Cancellation without an abort
+    /// request through this handle returns [`JoinError::Cancelled`].
     pub fn abort(&self) {
         match &self.inner {
             #[cfg(all(feature = "tokio", not(target_arch = "wasm32")))]
-            InnerJoinHandle::TokioHandle(handle) => {
+            InnerJoinHandle::TokioHandle {
+                handle,
+                abort_requested,
+            } => {
                 if let Some(handle) = handle.as_ref() {
+                    abort_requested.store(true, Ordering::Release);
                     handle.abort();
                 }
             }
@@ -139,7 +160,7 @@ impl<T> JoinHandle<T> {
     pub fn is_finished(&self) -> bool {
         match &self.inner {
             #[cfg(all(feature = "tokio", not(target_arch = "wasm32")))]
-            InnerJoinHandle::TokioHandle(handle) => {
+            InnerJoinHandle::TokioHandle { handle, .. } => {
                 handle.as_ref().map(|h| h.is_finished()).unwrap_or(true)
             }
             InnerJoinHandle::CustomHandle {
@@ -181,11 +202,17 @@ impl<T> Future for JoinHandle<T> {
         let inner = &mut self.inner;
         match inner {
             #[cfg(all(feature = "tokio", not(target_arch = "wasm32")))]
-            InnerJoinHandle::TokioHandle(handle) => {
+            InnerJoinHandle::TokioHandle {
+                handle,
+                abort_requested,
+            } => {
                 let fut = futures::ready!(Pin::new(handle).poll(cx));
 
                 match fut {
                     Ok(val) => Poll::Ready(Ok(val)),
+                    Err(e) if e.is_cancelled() && abort_requested.load(Ordering::Acquire) => {
+                        Poll::Ready(Err(JoinError::Aborted))
+                    }
                     Err(e) => Poll::Ready(Err(e.into())),
                 }
             }

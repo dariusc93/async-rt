@@ -1,5 +1,4 @@
 use crate::{Executor, ExecutorBlocking, InnerJoinHandle, JoinHandle};
-use pollable_map::optional::Optional;
 use std::future::Future;
 use std::sync::Arc;
 use tokio::runtime::{Handle, Runtime};
@@ -15,7 +14,7 @@ impl Executor for TokioExecutor {
         F::Output: Send + 'static,
     {
         let handle = tokio::task::spawn(future);
-        let inner = InnerJoinHandle::TokioHandle(Optional::new(handle));
+        let inner = InnerJoinHandle::tokio(handle);
         JoinHandle { inner }
     }
 }
@@ -27,7 +26,7 @@ impl ExecutorBlocking for TokioExecutor {
         R: Send + 'static,
     {
         let handle = tokio::task::spawn_blocking(f);
-        let inner = InnerJoinHandle::TokioHandle(Optional::new(handle));
+        let inner = InnerJoinHandle::tokio(handle);
         JoinHandle { inner }
     }
 }
@@ -97,7 +96,7 @@ impl Executor for TokioRuntimeExecutor {
         F::Output: Send + 'static,
     {
         let handle = self.handle.spawn(future);
-        let inner = InnerJoinHandle::TokioHandle(Optional::new(handle));
+        let inner = InnerJoinHandle::tokio(handle);
         JoinHandle { inner }
     }
 }
@@ -109,16 +108,39 @@ impl ExecutorBlocking for TokioRuntimeExecutor {
         R: Send + 'static,
     {
         let handle = self.handle.spawn_blocking(f);
-        let inner = InnerJoinHandle::TokioHandle(Optional::new(handle));
+        let inner = InnerJoinHandle::tokio(handle);
         JoinHandle { inner }
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::TokioExecutor;
+    use super::{TokioExecutor, TokioRuntimeExecutor};
+    use crate::error::JoinError;
     use crate::{Executor, ExecutorBlocking};
     use futures::channel::mpsc::{Receiver, UnboundedReceiver};
+
+    #[tokio::test]
+    async fn explicit_abort_is_reported_as_aborted() {
+        let handle = TokioExecutor.spawn(futures::future::pending::<()>());
+
+        handle.abort();
+
+        assert!(matches!(handle.await, Err(JoinError::Aborted)));
+    }
+
+    #[test]
+    fn runtime_shutdown_is_reported_as_cancelled() {
+        let executor = TokioRuntimeExecutor::with_multi_thread().unwrap();
+        let handle = executor.spawn(futures::future::pending::<()>());
+
+        drop(executor);
+
+        assert!(matches!(
+            futures::executor::block_on(handle),
+            Err(JoinError::Cancelled)
+        ));
+    }
 
     #[tokio::test]
     async fn default_abortable_task() {

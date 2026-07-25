@@ -129,6 +129,18 @@ mod tests {
         assert!(matches!(handle.await, Err(JoinError::Aborted)));
     }
 
+    #[cfg(panic = "unwind")]
+    #[tokio::test]
+    async fn task_panic_is_reported_as_panicked() {
+        async fn panic_task() -> usize {
+            panic!("expected task panic");
+        }
+
+        let handle = TokioExecutor.spawn(panic_task());
+
+        assert!(matches!(handle.await, Err(JoinError::Panicked)));
+    }
+
     #[test]
     fn runtime_shutdown_is_reported_as_cancelled() {
         let executor = TokioRuntimeExecutor::with_multi_thread().unwrap();

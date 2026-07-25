@@ -11,12 +11,13 @@ pub enum JoinError {
     /// was requested.
     #[error("The task was aborted")]
     Aborted,
-    #[error("The task timed out")]
-    TimedOut,
+    /// The task panicked.
     #[error("The task panicked")]
     Panicked,
+    /// The task that was polled was empty or contained no pending future.
     #[error("The task was empty")]
     Empty,
+    /// Unknown error.
     #[error("An unknown error occurred")]
     Unknown,
 }

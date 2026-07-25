@@ -14,8 +14,8 @@ use std::fmt::{Debug, Formatter};
 use std::panic::AssertUnwindSafe;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use crate::error::JoinError;
-pub use crate::scoped::{JoinError as ScopedJoinError, Scope, ScopeExecutor, ScopedJoinHandle};
+pub use crate::error::JoinError;
+pub use crate::scoped::{Scope, ScopeExecutor, ScopedJoinHandle};
 use futures::channel::mpsc::{Receiver, UnboundedReceiver};
 use futures::future::{AbortHandle, AbortRegistration, Abortable};
 use futures::task::AtomicWaker;
@@ -797,6 +797,7 @@ pub trait ExecutorBlocking: Executor {
 #[cfg(test)]
 mod tests {
     use crate::CompletionGuard;
+    use crate::error::JoinError;
     use crate::{Executor, ExecutorBlocking, InnerJoinHandle, JoinHandle};
     use futures::future::AbortHandle;
     use pollable_map::optional::Optional;
@@ -907,5 +908,38 @@ mod tests {
             let result = rx.await;
             assert!(result.is_err());
         });
+    }
+
+    #[test]
+    fn empty_handle_reports_empty() {
+        let handle = JoinHandle::<()>::empty();
+
+        assert!(matches!(
+            futures::executor::block_on(handle),
+            Err(JoinError::Empty)
+        ));
+    }
+
+    #[test]
+    fn custom_handle_reports_cancelled_when_sender_dropped() {
+        let (tx, rx) = futures::channel::oneshot::channel::<Result<(), JoinError>>();
+        let (abort_handle, _abort_registration) = AbortHandle::new_pair();
+        let handle = JoinHandle {
+            inner: InnerJoinHandle::CustomHandle {
+                inner: Optional::new(rx),
+                handle: abort_handle,
+                finished: Arc::new(AtomicBool::new(false)),
+            },
+        };
+
+        // Dropping the sender without producing a value mimics a task the
+        // executor discarded (e.g. runtime shutdown) rather than an explicit
+        // abort, which should surface as `Cancelled` rather than `Aborted`.
+        drop(tx);
+
+        assert!(matches!(
+            futures::executor::block_on(handle),
+            Err(JoinError::Cancelled)
+        ));
     }
 }

@@ -15,6 +15,7 @@
 use crate::{
     AbortableJoinHandle, CommunicationTask, CompletionGuard, Executor, InnerJoinHandle, JoinHandle,
     UnboundedCommunicationTask, abortable_result,
+    error::JoinError,
 };
 use core::future::{Future, poll_fn};
 use core::marker::PhantomData;
@@ -381,23 +382,6 @@ fn drive_scope<'scope>(
 pub struct ScopedJoinHandle<T> {
     rx: oneshot::Receiver<T>,
 }
-
-/// Error returned when a scoped task was cancelled before it produced an output
-#[derive(Debug)]
-pub enum JoinError {
-    /// The task was cancelled before it produced an output.
-    Cancelled,
-}
-
-impl core::fmt::Display for JoinError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            JoinError::Cancelled => f.write_str("scoped task was cancelled"),
-        }
-    }
-}
-
-impl core::error::Error for JoinError {}
 
 impl<T> Future for ScopedJoinHandle<T> {
     type Output = Result<T, JoinError>;

@@ -22,7 +22,10 @@ impl Executor for GlobalExecutor {
         crate::rt::tokio::TokioExecutor.spawn(future)
     }
 
-    #[cfg(all(feature = "threadpool", not(feature = "tokio")))]
+    #[cfg(all(
+        feature = "threadpool",
+        not(any(feature = "tokio", target_arch = "wasm32"))
+    ))]
     fn spawn<F>(&self, future: F) -> JoinHandle<F::Output>
     where
         F: Future + Send + 'static,
@@ -64,7 +67,10 @@ impl ExecutorBlocking for GlobalExecutor {
         crate::rt::tokio::TokioExecutor.spawn_blocking(f)
     }
 
-    #[cfg(all(feature = "threadpool", not(feature = "tokio")))]
+    #[cfg(all(
+        feature = "threadpool",
+        not(any(feature = "tokio", target_arch = "wasm32"))
+    ))]
     fn spawn_blocking<F, R>(&self, f: F) -> JoinHandle<R>
     where
         F: FnOnce() -> R + Send + 'static,

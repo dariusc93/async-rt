@@ -569,26 +569,14 @@ where
 /// they're going onto the real executor, so they can't borrow from the
 /// enclosing stack frame.
 ///
-/// # Panics in spawned tasks
-///
-/// Panics inside spawned tasks are **not** propagated to the scope.
-/// Unlike [`std::thread::scope`], `executor_scope` does not re-raise
-/// panics collected from its tasks: the panic is caught at the task
-/// boundary by the underlying runtime, and the scope simply treats the
-/// task as finished.
-///
-/// If you need to react to a task panic, poll or `.await` the returned
-/// [`JoinHandle`] yourself and check its result and don't rely on the
-/// scope to surface it.
-///
 /// # Example
 ///
 /// ```no_run
 /// # async fn run() {
 /// use async_rt::Executor;
-/// use async_rt::rt::tokio::TokioExecutor;
+/// use async_rt::global::GlobalExecutor;
 ///
-/// let executor = TokioExecutor;
+/// let executor = GlobalExecutor;
 /// let total = executor
 ///     .executor_scope(async |s| {
 ///         let a = s.spawn(async { 1 + 2 });

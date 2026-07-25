@@ -726,9 +726,9 @@ pub trait Executor {
     /// ```no_run
     /// # async fn run() {
     /// use async_rt::Executor;
-    /// use async_rt::rt::tokio::TokioExecutor;
+    /// use async_rt::global::GlobalExecutor;
     ///
-    /// let executor = TokioExecutor;
+    /// let executor = GlobalExecutor;
     /// let data = vec![1, 2, 3, 4];
     /// let sum = executor
     ///     .scope(async |s| {
@@ -755,21 +755,14 @@ pub trait Executor {
     /// Unlike [`Executor::scope`], tasks run on the real executor (so
     /// they get real parallelism) but must be `Send + 'static`.
     ///
-    /// # Panics in spawned tasks
-    ///
-    /// Panics inside tasks spawned via this scope are **not** propagated
-    /// to the caller. See [`scoped::executor_scope`] for details on
-    /// per-backend behaviour. If you need to react to a task panic,
-    /// await its [`JoinHandle`] directly.
-    ///
     /// # Example
     ///
     /// ```no_run
     /// # async fn run() {
     /// use async_rt::Executor;
-    /// use async_rt::rt::tokio::TokioExecutor;
+    /// use async_rt::global::GlobalExecutor;
     ///
-    /// let executor = TokioExecutor;
+    /// let executor = GlobalExecutor;
     /// let total = executor
     ///     .executor_scope(async |s| {
     ///         let a = s.spawn(async { 1 + 2 });

@@ -15,11 +15,13 @@ use std::panic::AssertUnwindSafe;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 pub use crate::error::JoinError;
+pub use crate::error::TimeoutError;
 pub use crate::scoped::{Scope, ScopeExecutor, ScopedJoinHandle};
 use futures::channel::mpsc::{Receiver, UnboundedReceiver};
 use futures::future::{AbortHandle, AbortRegistration, Abortable};
 use futures::task::AtomicWaker;
-use futures::{FutureExt, SinkExt, StreamExt};
+use futures::{FutureExt, SinkExt, StreamExt, TryFutureExt};
+use futures_timeout::Timeout;
 use pollable_map::optional::Optional;
 use std::future::Future;
 use std::pin::Pin;
@@ -90,6 +92,7 @@ impl<T> Debug for JoinHandle<T> {
     }
 }
 
+#[derive(Default)]
 enum InnerJoinHandle<T> {
     #[cfg(all(feature = "tokio", not(target_arch = "wasm32")))]
     TokioHandle {
@@ -102,13 +105,8 @@ enum InnerJoinHandle<T> {
         handle: AbortHandle,
         finished: Arc<AtomicBool>,
     },
+    #[default]
     Empty,
-}
-
-impl<T> Default for InnerJoinHandle<T> {
-    fn default() -> Self {
-        Self::Empty
-    }
 }
 
 impl<T> InnerJoinHandle<T> {
@@ -792,6 +790,42 @@ pub trait ExecutorBlocking: Executor {
     where
         F: FnOnce() -> R + Send + 'static,
         R: Send + 'static;
+}
+
+pub trait ExecutorTimeout: Executor {
+    /// Spawns a new asynchronous task in the background that must complete within `duration`,
+    /// returning a [`JoinHandle`].
+    ///
+    /// If the future does not finish before `duration` elapses, it is dropped and the task
+    /// completes with [`TimeoutError`].
+    fn spawn_timeout<F>(
+        &self,
+        duration: std::time::Duration,
+        f: F,
+    ) -> JoinHandle<Result<F::Output, TimeoutError>>
+    where
+        F: Future + Send + 'static,
+        F::Output: Send + 'static,
+    {
+        self.spawn(Timeout::from_future(f, duration).map_err(|_| TimeoutError))
+    }
+
+    /// Spawns a new asynchronous task in the background that must complete within `duration`,
+    /// returning an abortable handle that will cancel the task once the handle is dropped.
+    ///
+    /// If the future does not finish before `duration` elapses, it is dropped and the task
+    /// completes with [`TimeoutError`].
+    fn spawn_abortable_timeout<F>(
+        &self,
+        duration: std::time::Duration,
+        f: F,
+    ) -> AbortableJoinHandle<Result<F::Output, TimeoutError>>
+    where
+        F: Future + Send + 'static,
+        F::Output: Send + 'static,
+    {
+        self.spawn_abortable(Timeout::from_future(f, duration).map_err(|_| TimeoutError))
+    }
 }
 
 #[cfg(test)]

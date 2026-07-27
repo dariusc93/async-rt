@@ -1,7 +1,8 @@
+use crate::error::TimeoutError;
 use crate::global::GlobalExecutor;
 use crate::{
-    AbortableJoinHandle, CommunicationTask, Executor, ExecutorBlocking, JoinHandle, Scope,
-    ScopeExecutor, UnboundedCommunicationTask,
+    AbortableJoinHandle, CommunicationTask, Executor, ExecutorBlocking, ExecutorTimeout,
+    JoinHandle, Scope, ScopeExecutor, UnboundedCommunicationTask,
 };
 use futures::channel::mpsc::{Receiver, UnboundedReceiver};
 use std::future::Future;
@@ -38,6 +39,35 @@ where
     F::Output: Send + 'static,
 {
     EXECUTOR.spawn_abortable(future)
+}
+
+/// Spawns a new asynchronous task that must complete within `duration`.
+///
+/// If it does not, the future is dropped and the task completes with [`TimeoutError`].
+pub fn spawn_timeout<F>(
+    duration: std::time::Duration,
+    future: F,
+) -> JoinHandle<Result<F::Output, TimeoutError>>
+where
+    F: Future + Send + 'static,
+    F::Output: Send + 'static,
+{
+    EXECUTOR.spawn_timeout(duration, future)
+}
+
+/// Spawns a new asynchronous task, returning an abortable handle, that must complete within
+/// `duration`.
+///
+/// If it does not, the future is dropped and the task completes with [`TimeoutError`].
+pub fn spawn_abortable_timeout<F>(
+    duration: std::time::Duration,
+    future: F,
+) -> AbortableJoinHandle<Result<F::Output, TimeoutError>>
+where
+    F: Future + Send + 'static,
+    F::Output: Send + 'static,
+{
+    EXECUTOR.spawn_abortable_timeout(duration, future)
 }
 
 /// Spawns a new asynchronous task in the background without a handle.

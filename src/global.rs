@@ -1,4 +1,4 @@
-use crate::{Executor, ExecutorBlocking, JoinHandle};
+use crate::{Executor, ExecutorBlocking, ExecutorTimeout, JoinHandle};
 use std::future::Future;
 
 /// Executor that selects an available runtime backend at compile time.
@@ -101,3 +101,5 @@ impl ExecutorBlocking for GlobalExecutor {
         unimplemented!()
     }
 }
+
+impl ExecutorTimeout for GlobalExecutor {}

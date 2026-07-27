@@ -1,5 +1,6 @@
 use crate::{
-    CompletionGuard, Executor, ExecutorBlocking, InnerJoinHandle, JoinHandle, abortable_result,
+    CompletionGuard, Executor, ExecutorBlocking, ExecutorTimeout, InnerJoinHandle, JoinHandle,
+    abortable_result,
 };
 use futures::future::AbortHandle;
 use pollable_map::optional::Optional;
@@ -57,3 +58,5 @@ impl ExecutorBlocking for WasmExecutor {
         self.spawn(fut)
     }
 }
+
+impl ExecutorTimeout for WasmExecutor {}

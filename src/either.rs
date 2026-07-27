@@ -1,6 +1,8 @@
-use crate::{Executor, ExecutorBlocking, JoinHandle};
+use crate::error::TimeoutError;
+use crate::{AbortableJoinHandle, Executor, ExecutorBlocking, ExecutorTimeout, JoinHandle};
 use either::Either;
 use std::future::Future;
+use std::time::Duration;
 
 impl<L, R> Executor for Either<L, R>
 where
@@ -32,6 +34,42 @@ where
         match self {
             Either::Left(l) => l.spawn_blocking(f),
             Either::Right(r) => r.spawn_blocking(f),
+        }
+    }
+}
+
+impl<L, R> ExecutorTimeout for Either<L, R>
+where
+    L: ExecutorTimeout,
+    R: ExecutorTimeout,
+{
+    fn spawn_timeout<F>(
+        &self,
+        duration: Duration,
+        f: F,
+    ) -> JoinHandle<Result<F::Output, TimeoutError>>
+    where
+        F: Future + Send + 'static,
+        F::Output: Send + 'static,
+    {
+        match self {
+            Either::Left(l) => l.spawn_timeout(duration, f),
+            Either::Right(r) => r.spawn_timeout(duration, f),
+        }
+    }
+
+    fn spawn_abortable_timeout<F>(
+        &self,
+        duration: Duration,
+        f: F,
+    ) -> AbortableJoinHandle<Result<F::Output, TimeoutError>>
+    where
+        F: Future + Send + 'static,
+        F::Output: Send + 'static,
+    {
+        match self {
+            Either::Left(l) => l.spawn_abortable_timeout(duration, f),
+            Either::Right(r) => r.spawn_abortable_timeout(duration, f),
         }
     }
 }

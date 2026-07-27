@@ -14,8 +14,7 @@
 
 use crate::{
     AbortableJoinHandle, CommunicationTask, CompletionGuard, Executor, InnerJoinHandle, JoinHandle,
-    UnboundedCommunicationTask, abortable_result,
-    error::JoinError,
+    TimeoutError, UnboundedCommunicationTask, abortable_result, error::JoinError,
 };
 use core::future::{Future, poll_fn};
 use core::marker::PhantomData;
@@ -26,7 +25,8 @@ use futures::channel::oneshot;
 use futures::future::{AbortHandle, BoxFuture};
 use futures::stream::FuturesUnordered;
 use futures::task::AtomicWaker;
-use futures::{FutureExt, StreamExt};
+use futures::{FutureExt, StreamExt, TryFutureExt};
+use futures_timeout::Timeout;
 use parking_lot::Mutex;
 use pollable_map::optional::Optional;
 use std::sync::atomic::AtomicBool;
@@ -334,6 +334,40 @@ impl<'scope, 'env> Scope<'scope, 'env> {
         let (tx, rx) = futures::channel::mpsc::unbounded();
         let task_handle = self.spawn_abortable(f(context, rx));
         UnboundedCommunicationTask::new(task_handle, tx)
+    }
+
+    /// Spawn a scoped task that must complete within `duration`.
+    ///
+    /// If the future does not finish before `duration` elapses, it is dropped and the task
+    /// completes with [`TimeoutError`]. This is the scoped analogue of
+    /// [`ExecutorTimeout::spawn_timeout`](crate::ExecutorTimeout::spawn_timeout).
+    pub fn spawn_timeout<F>(
+        &'scope self,
+        duration: std::time::Duration,
+        f: F,
+    ) -> ScopedJoinHandle<Result<F::Output, TimeoutError>>
+    where
+        F: Future + Send + 'static,
+        F::Output: Send + 'static,
+    {
+        self.spawn(Timeout::from_future(f, duration).map_err(|_| TimeoutError))
+    }
+
+    /// Spawn a scoped task that must complete within `duration`, returning an
+    /// [`AbortableJoinHandle`] that cancels the task once all references to it are dropped.
+    ///
+    /// If the future does not finish before `duration` elapses, it is dropped and the task
+    /// completes with [`TimeoutError`].
+    pub fn spawn_abortable_timeout<F>(
+        &'scope self,
+        duration: std::time::Duration,
+        f: F,
+    ) -> AbortableJoinHandle<Result<F::Output, TimeoutError>>
+    where
+        F: Future + Send + 'static,
+        F::Output: Send + 'static,
+    {
+        self.spawn_abortable(Timeout::from_future(f, duration).map_err(|_| TimeoutError))
     }
 }
 

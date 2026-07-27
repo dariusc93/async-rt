@@ -1,4 +1,4 @@
-use crate::{Executor, ExecutorBlocking, JoinHandle};
+use crate::{Executor, ExecutorBlocking, ExecutorTimeout, JoinHandle};
 use std::fmt::Debug;
 use std::future::Future;
 use std::pin::Pin;
@@ -8,10 +8,10 @@ use std::task::{Context, Poll};
 
 /// Track running tasks.
 ///
-/// Note that there is no guarantee that the runtime would drop the future after it is done; therefore,
-/// this should only be used for purely approx statistics and not actual numbers. Additionally,
-/// it does not track any tasks spawned directly by the runtime but only by [`Executor::spawn`] through
-/// this struct.
+/// Note that there is no guarantee that the runtime would drop the future after it is done.
+/// Therefore, this should only be used for purely approx statistics and not actual numbers.
+/// Additionally, it does not track any tasks spawned directly by the runtime but only by
+/// [`Executor::spawn`] through this implementation against [`Executor`].
 pub struct TrackerExecutor<E> {
     executor: E,
     counter: Arc<AtomicUsize>,
@@ -108,6 +108,8 @@ impl<E: ExecutorBlocking> ExecutorBlocking for TrackerExecutor<E> {
         })
     }
 }
+
+impl<E: ExecutorTimeout> ExecutorTimeout for TrackerExecutor<E> {}
 
 #[cfg(test)]
 mod tests {

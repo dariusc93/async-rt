@@ -1,4 +1,4 @@
-use crate::{Executor, ExecutorBlocking, InnerJoinHandle, JoinHandle};
+use crate::{Executor, ExecutorBlocking, ExecutorTimeout, InnerJoinHandle, JoinHandle};
 use std::future::Future;
 use std::sync::Arc;
 use tokio::runtime::{Handle, Runtime};
@@ -30,6 +30,8 @@ impl ExecutorBlocking for TokioExecutor {
         JoinHandle { inner }
     }
 }
+
+impl ExecutorTimeout for TokioExecutor {}
 
 /// Tokio executor with an [`Runtime`] or [`Handle`]
 #[derive(Clone, Debug)]
@@ -113,12 +115,15 @@ impl ExecutorBlocking for TokioRuntimeExecutor {
     }
 }
 
+impl ExecutorTimeout for TokioRuntimeExecutor {}
+
 #[cfg(test)]
 mod tests {
     use super::{TokioExecutor, TokioRuntimeExecutor};
     use crate::error::JoinError;
-    use crate::{Executor, ExecutorBlocking};
+    use crate::{Executor, ExecutorBlocking, ExecutorTimeout, TimeoutError};
     use futures::channel::mpsc::{Receiver, UnboundedReceiver};
+    use futures_timer::Delay;
 
     #[tokio::test]
     async fn explicit_abort_is_reported_as_aborted() {
@@ -406,6 +411,58 @@ mod tests {
         task.send(msg).unwrap();
         let resp = rx.await.unwrap();
         assert_eq!(resp, "Hello");
+    }
+
+    #[tokio::test]
+    async fn timeout_task() {
+        let executor = TokioExecutor;
+
+        let task = executor.spawn_timeout(
+            std::time::Duration::from_millis(10),
+            futures::future::pending::<()>(),
+        );
+        let resp = task.await.unwrap();
+        assert!(matches!(resp.unwrap_err(), TimeoutError));
+    }
+
+    #[tokio::test]
+    async fn complete_before_timeout_task() {
+        let executor = TokioExecutor;
+
+        let task = executor.spawn_timeout(
+            std::time::Duration::from_millis(10),
+            futures::future::ready("Hello"),
+        );
+        let resp = task.await.unwrap();
+        assert!(resp.is_ok());
+        let result = resp.unwrap();
+        assert_eq!(result, "Hello");
+    }
+
+    #[tokio::test]
+    async fn race_before_timeout_task() {
+        let executor = TokioExecutor;
+
+        let task = executor.spawn_timeout(std::time::Duration::from_millis(500), async {
+            Delay::new(std::time::Duration::from_millis(10)).await;
+            "Hello"
+        });
+        let resp = task.await.unwrap();
+        assert!(resp.is_ok());
+        let result = resp.unwrap();
+        assert_eq!(result, "Hello");
+    }
+
+    #[tokio::test]
+    async fn abortable_timeout_task() {
+        let executor = TokioExecutor;
+
+        let task = executor.spawn_abortable_timeout(
+            std::time::Duration::from_millis(10),
+            futures::future::pending::<()>(),
+        );
+        let resp = task.await.unwrap();
+        assert!(matches!(resp.unwrap_err(), TimeoutError));
     }
 
     #[tokio::test]

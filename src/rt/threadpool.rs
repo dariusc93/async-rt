@@ -1,5 +1,6 @@
 use crate::{
-    CompletionGuard, Executor, ExecutorBlocking, InnerJoinHandle, JoinHandle, abortable_result,
+    CompletionGuard, Executor, ExecutorBlocking, ExecutorTimeout, InnerJoinHandle, JoinHandle,
+    abortable_result,
 };
 use futures::executor::ThreadPool;
 use futures::future::AbortHandle;
@@ -70,11 +71,13 @@ impl ExecutorBlocking for ThreadPoolExecutor {
     }
 }
 
+impl ExecutorTimeout for ThreadPoolExecutor {}
+
 #[cfg(test)]
 mod tests {
     use super::ThreadPoolExecutor;
     use crate::error::JoinError;
-    use crate::{Executor, ExecutorBlocking};
+    use crate::{Executor, ExecutorBlocking, ExecutorTimeout, TimeoutError};
     use futures::channel::mpsc::{Receiver, UnboundedReceiver};
 
     async fn task(tx: futures::channel::oneshot::Sender<()>) {
@@ -366,6 +369,34 @@ mod tests {
             let resp = rx.await.unwrap();
             assert_eq!(resp, "Hello");
         });
+    }
+
+    #[test]
+    fn timeout_task() {
+        futures::executor::block_on(async {
+            let executor = ThreadPoolExecutor::default();
+
+            let task = executor.spawn_timeout(
+                std::time::Duration::from_millis(10),
+                futures::future::pending::<()>(),
+            );
+            let resp = task.await.unwrap();
+            assert!(matches!(resp.unwrap_err(), TimeoutError));
+        })
+    }
+
+    #[test]
+    fn abortable_timeout_task() {
+        futures::executor::block_on(async {
+            let executor = ThreadPoolExecutor::default();
+
+            let task = executor.spawn_abortable_timeout(
+                std::time::Duration::from_millis(10),
+                futures::future::pending::<()>(),
+            );
+            let resp = task.await.unwrap();
+            assert!(matches!(resp.unwrap_err(), TimeoutError));
+        })
     }
 
     #[test]

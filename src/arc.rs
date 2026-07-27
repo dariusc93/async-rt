@@ -1,4 +1,5 @@
-use crate::{Executor, ExecutorBlocking, JoinHandle};
+use crate::error::TimeoutError;
+use crate::{AbortableJoinHandle, Executor, ExecutorBlocking, ExecutorTimeout, JoinHandle};
 use std::future::Future;
 use std::sync::Arc;
 
@@ -25,5 +26,34 @@ where
         T: Send + 'static,
     {
         (**self).spawn_blocking(future)
+    }
+}
+
+impl<E> ExecutorTimeout for Arc<E>
+where
+    E: ExecutorTimeout,
+{
+    fn spawn_timeout<F>(
+        &self,
+        duration: std::time::Duration,
+        f: F,
+    ) -> JoinHandle<Result<F::Output, TimeoutError>>
+    where
+        F: Future + Send + 'static,
+        F::Output: Send + 'static,
+    {
+        (**self).spawn_timeout(duration, f)
+    }
+
+    fn spawn_abortable_timeout<F>(
+        &self,
+        duration: std::time::Duration,
+        f: F,
+    ) -> AbortableJoinHandle<Result<F::Output, TimeoutError>>
+    where
+        F: Future + Send + 'static,
+        F::Output: Send + 'static,
+    {
+        (**self).spawn_abortable_timeout(duration, f)
     }
 }

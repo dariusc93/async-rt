@@ -21,7 +21,7 @@ tokio = ["dep:tokio"]
 
 [dependencies]
 futures = { version = "0.3.31", default-features = false, features = ["std", "alloc", "async-await"] }
-pollable-map = "0.1.7"
+pollable-map = "0.2.0"
 parking_lot = "0.12.5"
 either = { version = "1.15.0", optional = true}
 thiserror = "1.0.69"

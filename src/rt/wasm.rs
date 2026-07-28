@@ -45,15 +45,9 @@ impl ExecutorBlocking for WasmExecutor {
         F: FnOnce() -> R + Send + 'static,
         R: Send + 'static,
     {
-        // Since wasm does not have any blocking operations, we would just
-        // execute the function in the given task and return its underlining value, if any
-        // TODO: Maybe check to determine if this is a browser and if so use webworker for offloading
-        let fut = async {
-            let val = f();
-            // we yield back to the executor, so it can make some progress before we return the value here and allow other tasks to continue.
-            // not exactly needed
-            crate::task::yield_now().await;
-            val
+        let fut = async move {
+            let _handle = wasm_thread::spawn(f);
+            _handle.join_async().await.expect("shouldn't panic")
         };
         self.spawn(fut)
     }

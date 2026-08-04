@@ -12,6 +12,7 @@
 //! closure's future completes are drained before `scope` returns, so every
 //! borrow is released before the stack frame goes away.
 
+use crate::communication::CommunicationHandle;
 use crate::{
     AbortableJoinHandle, CommunicationTask, CompletionGuard, Executor, InnerJoinHandle, JoinHandle,
     TimeoutError, UnboundedCommunicationTask, abortable_result, error::JoinError,
@@ -133,127 +134,160 @@ impl<'scope, 'env> Scope<'scope, 'env> {
     /// Spawn a message-driven coroutine into this scope.
     ///
     /// Equivalent to [`Executor::spawn_coroutine`] for scoped tasks.
-    pub fn spawn_coroutine<T, F, Fut>(&'scope self, f: F) -> CommunicationTask<T>
+    pub fn spawn_coroutine<In, Out, F, Fut>(&'scope self, f: F) -> CommunicationTask<In, Out>
     where
-        F: FnMut(T) -> Fut + Send + 'scope,
+        F: FnMut(&CommunicationHandle<Out>, In) -> Fut + Send + 'scope,
         Fut: Future<Output = ()> + Send + 'scope,
-        T: Send + 'scope,
+        In: Send + 'scope,
+        Out: Send + 'scope,
     {
         self.spawn_coroutine_with_buffer(1, f)
     }
 
     /// Like [`Scope::spawn_coroutine`] but with a configurable channel
     /// buffer.
-    pub fn spawn_coroutine_with_buffer<T, F, Fut>(
+    pub fn spawn_coroutine_with_buffer<In, Out, F, Fut>(
         &'scope self,
         buffer: usize,
         mut f: F,
-    ) -> CommunicationTask<T>
+    ) -> CommunicationTask<In, Out>
     where
-        F: FnMut(T) -> Fut + Send + 'scope,
+        F: FnMut(&CommunicationHandle<Out>, In) -> Fut + Send + 'scope,
         Fut: Future<Output = ()> + Send + 'scope,
-        T: Send + 'scope,
+        In: Send + 'scope,
+        Out: Send + 'scope,
     {
         let (tx, mut rx) = futures::channel::mpsc::channel(buffer);
+        let (out_tx, out_rx) = async_channel::bounded(buffer.max(1));
         let task_handle = self.spawn_abortable(async move {
+            let handle = CommunicationHandle::new(out_tx);
             while let Some(message) = rx.next().await {
-                f(message).await;
+                f(&handle, message).await;
             }
         });
-        CommunicationTask::new(task_handle, tx)
+        CommunicationTask {
+            _task_handle: task_handle,
+            _channel_tx: tx,
+            _channel_rx: Box::pin(out_rx),
+        }
     }
 
     /// Spawn an unbounded message-driven coroutine into this scope.
     ///
     /// Equivalent to [`Executor::spawn_unbounded_coroutine`] for scoped
     /// tasks.
-    pub fn spawn_unbounded_coroutine<T, F, Fut>(
+    pub fn spawn_unbounded_coroutine<In, Out, F, Fut>(
         &'scope self,
         mut f: F,
-    ) -> UnboundedCommunicationTask<T>
+    ) -> UnboundedCommunicationTask<In, Out>
     where
-        F: FnMut(T) -> Fut + Send + 'scope,
+        F: FnMut(&CommunicationHandle<Out>, In) -> Fut + Send + 'scope,
         Fut: Future<Output = ()> + Send + 'scope,
-        T: Send + 'scope,
+        In: Send + 'scope,
+        Out: Send + 'scope,
     {
         let (tx, mut rx) = futures::channel::mpsc::unbounded();
+        let (out_tx, out_rx) = async_channel::unbounded();
         let task_handle = self.spawn_abortable(async move {
+            let handle = CommunicationHandle::new(out_tx);
             while let Some(message) = rx.next().await {
-                f(message).await;
+                f(&handle, message).await;
             }
         });
-        UnboundedCommunicationTask::new(task_handle, tx)
+        UnboundedCommunicationTask {
+            _task_handle: task_handle,
+            _channel_tx: tx,
+            _channel_rx: Box::pin(out_rx),
+        }
     }
 
     /// Spawn a message-driven coroutine with caller-provided context.
     ///
     /// If the context must be borrowed across awaits, use
     /// [`Scope::spawn_coroutine_with_receiver_and_context`].
-    pub fn spawn_coroutine_with_context<T, C, F, Fut>(
+    pub fn spawn_coroutine_with_context<In, Out, C, F, Fut>(
         &'scope self,
         context: C,
         f: F,
-    ) -> CommunicationTask<T>
+    ) -> CommunicationTask<In, Out>
     where
-        F: FnMut(&mut C, T) -> Fut + Send + 'scope,
+        F: FnMut(&CommunicationHandle<Out>, &mut C, In) -> Fut + Send + 'scope,
         Fut: Future<Output = ()> + Send + 'scope,
         C: Send + 'scope,
-        T: Send + 'scope,
+        In: Send + 'scope,
+        Out: Send + 'scope,
     {
         self.spawn_coroutine_with_buffer_and_context(context, 1, f)
     }
 
     /// Like [`Scope::spawn_coroutine_with_context`] but with a configurable
     /// channel buffer.
-    pub fn spawn_coroutine_with_buffer_and_context<T, C, F, Fut>(
+    pub fn spawn_coroutine_with_buffer_and_context<In, Out, C, F, Fut>(
         &'scope self,
         context: C,
         buffer: usize,
         mut f: F,
-    ) -> CommunicationTask<T>
+    ) -> CommunicationTask<In, Out>
     where
-        F: FnMut(&mut C, T) -> Fut + Send + 'scope,
+        F: FnMut(&CommunicationHandle<Out>, &mut C, In) -> Fut + Send + 'scope,
         Fut: Future<Output = ()> + Send + 'scope,
         C: Send + 'scope,
-        T: Send + 'scope,
+        In: Send + 'scope,
+        Out: Send + 'scope,
     {
         let (tx, mut rx) = futures::channel::mpsc::channel(buffer);
+        let (out_tx, out_rx) = async_channel::bounded(buffer.max(1));
         let task_handle = self.spawn_abortable(async move {
+            let handle = CommunicationHandle::new(out_tx);
             let mut context = context;
             while let Some(message) = rx.next().await {
-                f(&mut context, message).await;
+                f(&handle, &mut context, message).await;
             }
         });
-        CommunicationTask::new(task_handle, tx)
+        CommunicationTask {
+            _task_handle: task_handle,
+            _channel_tx: tx,
+            _channel_rx: Box::pin(out_rx),
+        }
     }
 
     /// Spawn an unbounded message-driven coroutine with caller-provided
     /// context.
-    pub fn spawn_unbounded_coroutine_with_context<T, C, F, Fut>(
+    pub fn spawn_unbounded_coroutine_with_context<In, Out, C, F, Fut>(
         &'scope self,
         context: C,
         mut f: F,
-    ) -> UnboundedCommunicationTask<T>
+    ) -> UnboundedCommunicationTask<In, Out>
     where
-        F: FnMut(&mut C, T) -> Fut + Send + 'scope,
+        F: FnMut(&CommunicationHandle<Out>, &mut C, In) -> Fut + Send + 'scope,
         Fut: Future<Output = ()> + Send + 'scope,
         C: Send + 'scope,
-        T: Send + 'scope,
+        In: Send + 'scope,
+        Out: Send + 'scope,
     {
         let (tx, mut rx) = futures::channel::mpsc::unbounded();
+        let (out_tx, out_rx) = async_channel::unbounded();
         let task_handle = self.spawn_abortable(async move {
+            let handle = CommunicationHandle::new(out_tx);
             let mut context = context;
             while let Some(message) = rx.next().await {
-                f(&mut context, message).await;
+                f(&handle, &mut context, message).await;
             }
         });
-        UnboundedCommunicationTask::new(task_handle, tx)
+        UnboundedCommunicationTask {
+            _task_handle: task_handle,
+            _channel_tx: tx,
+            _channel_rx: Box::pin(out_rx),
+        }
     }
 
     /// Spawn a coroutine that receives the bounded channel directly.
-    pub fn spawn_coroutine_with_receiver<T, F, Fut>(&'scope self, f: F) -> CommunicationTask<T>
+    pub fn spawn_coroutine_with_receiver<In, Out, F, Fut>(
+        &'scope self,
+        f: F,
+    ) -> CommunicationTask<In, Out>
     where
-        F: FnMut(Receiver<T>) -> Fut,
+        F: FnMut(CommunicationHandle<Out>, Receiver<In>) -> Fut,
         Fut: Future<Output = ()> + Send + 'scope,
     {
         self.spawn_coroutine_with_receiver_and_buffer(1, f)
@@ -261,29 +295,35 @@ impl<'scope, 'env> Scope<'scope, 'env> {
 
     /// Like [`Scope::spawn_coroutine_with_receiver`] but with a configurable
     /// channel buffer.
-    pub fn spawn_coroutine_with_receiver_and_buffer<T, F, Fut>(
+    pub fn spawn_coroutine_with_receiver_and_buffer<In, Out, F, Fut>(
         &'scope self,
         buffer: usize,
         mut f: F,
-    ) -> CommunicationTask<T>
+    ) -> CommunicationTask<In, Out>
     where
-        F: FnMut(Receiver<T>) -> Fut,
+        F: FnMut(CommunicationHandle<Out>, Receiver<In>) -> Fut,
         Fut: Future<Output = ()> + Send + 'scope,
     {
         let (tx, rx) = futures::channel::mpsc::channel(buffer);
-        let task_handle = self.spawn_abortable(f(rx));
-        CommunicationTask::new(task_handle, tx)
+        let (out_tx, out_rx) = async_channel::bounded(buffer.max(1));
+        let handle = CommunicationHandle::new(out_tx);
+        let task_handle = self.spawn_abortable(f(handle, rx));
+        CommunicationTask {
+            _task_handle: task_handle,
+            _channel_tx: tx,
+            _channel_rx: Box::pin(out_rx),
+        }
     }
 
     /// Spawn a coroutine that receives caller-provided context and the
     /// bounded channel directly.
-    pub fn spawn_coroutine_with_receiver_and_context<T, F, C, Fut>(
+    pub fn spawn_coroutine_with_receiver_and_context<In, Out, F, C, Fut>(
         &'scope self,
         context: C,
         f: F,
-    ) -> CommunicationTask<T>
+    ) -> CommunicationTask<In, Out>
     where
-        F: FnMut(C, Receiver<T>) -> Fut,
+        F: FnMut(CommunicationHandle<Out>, C, Receiver<In>) -> Fut,
         Fut: Future<Output = ()> + Send + 'scope,
     {
         self.spawn_coroutine_with_receiver_buffer_and_context(context, 1, f)
@@ -291,49 +331,67 @@ impl<'scope, 'env> Scope<'scope, 'env> {
 
     /// Like [`Scope::spawn_coroutine_with_receiver_and_context`] but with a
     /// configurable channel buffer.
-    pub fn spawn_coroutine_with_receiver_buffer_and_context<T, F, C, Fut>(
+    pub fn spawn_coroutine_with_receiver_buffer_and_context<In, Out, F, C, Fut>(
         &'scope self,
         context: C,
         buffer: usize,
         mut f: F,
-    ) -> CommunicationTask<T>
+    ) -> CommunicationTask<In, Out>
     where
-        F: FnMut(C, Receiver<T>) -> Fut,
+        F: FnMut(CommunicationHandle<Out>, C, Receiver<In>) -> Fut,
         Fut: Future<Output = ()> + Send + 'scope,
     {
         let (tx, rx) = futures::channel::mpsc::channel(buffer);
-        let task_handle = self.spawn_abortable(f(context, rx));
-        CommunicationTask::new(task_handle, tx)
+        let (out_tx, out_rx) = async_channel::bounded(buffer.max(1));
+        let handle = CommunicationHandle::new(out_tx);
+        let task_handle = self.spawn_abortable(f(handle, context, rx));
+        CommunicationTask {
+            _task_handle: task_handle,
+            _channel_tx: tx,
+            _channel_rx: Box::pin(out_rx),
+        }
     }
 
     /// Spawn a coroutine that receives the unbounded channel directly.
-    pub fn spawn_unbounded_coroutine_with_receiver<T, F, Fut>(
+    pub fn spawn_unbounded_coroutine_with_receiver<In, Out, F, Fut>(
         &'scope self,
         mut f: F,
-    ) -> UnboundedCommunicationTask<T>
+    ) -> UnboundedCommunicationTask<In, Out>
     where
-        F: FnMut(UnboundedReceiver<T>) -> Fut,
+        F: FnMut(CommunicationHandle<Out>, UnboundedReceiver<In>) -> Fut,
         Fut: Future<Output = ()> + Send + 'scope,
     {
         let (tx, rx) = futures::channel::mpsc::unbounded();
-        let task_handle = self.spawn_abortable(f(rx));
-        UnboundedCommunicationTask::new(task_handle, tx)
+        let (out_tx, out_rx) = async_channel::unbounded();
+        let handle = CommunicationHandle::new(out_tx);
+        let task_handle = self.spawn_abortable(f(handle, rx));
+        UnboundedCommunicationTask {
+            _task_handle: task_handle,
+            _channel_tx: tx,
+            _channel_rx: Box::pin(out_rx),
+        }
     }
 
     /// Spawn a coroutine that receives caller-provided context and the
     /// unbounded channel directly.
-    pub fn spawn_unbounded_coroutine_with_receiver_and_context<T, F, C, Fut>(
+    pub fn spawn_unbounded_coroutine_with_receiver_and_context<In, Out, F, C, Fut>(
         &'scope self,
         context: C,
         mut f: F,
-    ) -> UnboundedCommunicationTask<T>
+    ) -> UnboundedCommunicationTask<In, Out>
     where
-        F: FnMut(C, UnboundedReceiver<T>) -> Fut,
+        F: FnMut(CommunicationHandle<Out>, C, UnboundedReceiver<In>) -> Fut,
         Fut: Future<Output = ()> + Send + 'scope,
     {
         let (tx, rx) = futures::channel::mpsc::unbounded();
-        let task_handle = self.spawn_abortable(f(context, rx));
-        UnboundedCommunicationTask::new(task_handle, tx)
+        let (out_tx, out_rx) = async_channel::unbounded();
+        let handle = CommunicationHandle::new(out_tx);
+        let task_handle = self.spawn_abortable(f(handle, context, rx));
+        UnboundedCommunicationTask {
+            _task_handle: task_handle,
+            _channel_tx: tx,
+            _channel_rx: Box::pin(out_rx),
+        }
     }
 
     /// Spawn a scoped task that must complete within `duration`.
@@ -872,9 +930,10 @@ mod tests {
         let total_ref = &total;
 
         scope(async |s: &Scope<'_, '_>| {
-            let mut task = s.spawn_coroutine(|value| async move {
-                total_ref.fetch_add(value, Ordering::SeqCst);
-            });
+            let mut task =
+                s.spawn_coroutine(|_handle: &CommunicationHandle<()>, value| async move {
+                    total_ref.fetch_add(value, Ordering::SeqCst);
+                });
             for v in [1usize, 2, 3, 4] {
                 task.send(v).await.unwrap();
             }
@@ -892,11 +951,13 @@ mod tests {
         let total_ref = &total;
 
         scope(async |s: &Scope<'_, '_>| {
-            let mut task = s.spawn_coroutine_with_receiver(|mut rx| async move {
-                while let Some(value) = rx.next().await {
-                    total_ref.fetch_add(value, Ordering::SeqCst);
-                }
-            });
+            let mut task = s.spawn_coroutine_with_receiver(
+                |_handle: CommunicationHandle<()>, mut rx| async move {
+                    while let Some(value) = rx.next().await {
+                        total_ref.fetch_add(value, Ordering::SeqCst);
+                    }
+                },
+            );
             for value in [1usize, 2, 3, 4] {
                 task.send(value).await.unwrap();
             }
@@ -912,23 +973,31 @@ mod tests {
         use futures::future::ready;
 
         scope(async |s: &Scope<'_, '_>| {
-            let task = s.spawn_coroutine_with_buffer(2, |_value: usize| ready(()));
-            drop(task);
-
-            let task = s.spawn_unbounded_coroutine(|_value: usize| ready(()));
+            let task = s.spawn_coroutine_with_buffer(
+                2,
+                |_handle: &CommunicationHandle<()>, _value: usize| ready(()),
+            );
             drop(task);
 
             let task =
-                s.spawn_coroutine_with_context(0usize, |context: &mut usize, value: usize| {
-                    *context += value;
+                s.spawn_unbounded_coroutine(|_handle: &CommunicationHandle<()>, _value: usize| {
                     ready(())
                 });
+            drop(task);
+
+            let task = s.spawn_coroutine_with_context(
+                0usize,
+                |_handle: &CommunicationHandle<()>, context: &mut usize, value: usize| {
+                    *context += value;
+                    ready(())
+                },
+            );
             drop(task);
 
             let task = s.spawn_coroutine_with_buffer_and_context(
                 0usize,
                 2,
-                |context: &mut usize, value: usize| {
+                |_handle: &CommunicationHandle<()>, context: &mut usize, value: usize| {
                     *context += value;
                     ready(())
                 },
@@ -937,37 +1006,41 @@ mod tests {
 
             let task = s.spawn_unbounded_coroutine_with_context(
                 0usize,
-                |context: &mut usize, value: usize| {
+                |_handle: &CommunicationHandle<()>, context: &mut usize, value: usize| {
                     *context += value;
                     ready(())
                 },
             );
             drop(task);
 
-            let task =
-                s.spawn_coroutine_with_receiver_and_buffer(2, |_rx: Receiver<usize>| async {});
+            let task = s.spawn_coroutine_with_receiver_and_buffer(
+                2,
+                |_handle: CommunicationHandle<()>, _rx: Receiver<usize>| async {},
+            );
             drop(task);
 
             let task = s.spawn_coroutine_with_receiver_and_context(
                 0usize,
-                |_context, _rx: Receiver<usize>| async {},
+                |_handle: CommunicationHandle<()>, _context, _rx: Receiver<usize>| async {},
             );
             drop(task);
 
             let task = s.spawn_coroutine_with_receiver_buffer_and_context(
                 0usize,
                 2,
-                |_context, _rx: Receiver<usize>| async {},
+                |_handle: CommunicationHandle<()>, _context, _rx: Receiver<usize>| async {},
             );
             drop(task);
 
-            let task =
-                s.spawn_unbounded_coroutine_with_receiver(|_rx: UnboundedReceiver<usize>| async {});
+            let task = s.spawn_unbounded_coroutine_with_receiver(
+                |_handle: CommunicationHandle<()>, _rx: UnboundedReceiver<usize>| async {},
+            );
             drop(task);
 
             let task = s.spawn_unbounded_coroutine_with_receiver_and_context(
                 0usize,
-                |_context, _rx: UnboundedReceiver<usize>| async {},
+                |_handle: CommunicationHandle<()>, _context, _rx: UnboundedReceiver<usize>| async {
+                },
             );
             drop(task);
         })

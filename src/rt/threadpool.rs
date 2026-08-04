@@ -77,7 +77,10 @@ impl ExecutorTimeout for ThreadPoolExecutor {}
 mod tests {
     use super::ThreadPoolExecutor;
     use crate::error::JoinError;
-    use crate::{Executor, ExecutorBlocking, ExecutorTimeout, TimeoutError};
+    use crate::{
+        CommunicationTask, Executor, ExecutorBlocking, ExecutorTimeout, TimeoutError,
+        UnboundedCommunicationTask,
+    };
     use futures::channel::mpsc::{Receiver, UnboundedReceiver};
 
     async fn task(tx: futures::channel::oneshot::Sender<()>) {
@@ -132,13 +135,14 @@ mod tests {
             Send(String, futures::channel::oneshot::Sender<String>),
         }
 
-        let mut task = executor.spawn_coroutine(|msg: Message| async move {
-            match msg {
-                Message::Send(msg, sender) => {
-                    sender.send(msg).unwrap();
+        let mut task: CommunicationTask<Message, ()> =
+            executor.spawn_coroutine(|_, msg: Message| async move {
+                match msg {
+                    Message::Send(msg, sender) => {
+                        sender.send(msg).unwrap();
+                    }
                 }
-            }
-        });
+            });
 
         let (tx, rx) = futures::channel::oneshot::channel::<String>();
         let msg = Message::Send("Hello".into(), tx);
@@ -155,8 +159,8 @@ mod tests {
 
         type Resp = futures::channel::oneshot::Sender<usize>;
 
-        let mut task =
-            executor.spawn_coroutine_with_context(0usize, |counter: &mut usize, resp: Resp| {
+        let mut task: CommunicationTask<Resp> =
+            executor.spawn_coroutine_with_context(0usize, |_, counter: &mut usize, resp: Resp| {
                 *counter += 1;
                 let n = *counter;
                 async move {
@@ -183,8 +187,8 @@ mod tests {
             Send(String, futures::channel::oneshot::Sender<String>),
         }
 
-        let mut task =
-            executor.spawn_coroutine_with_receiver(|mut rx: Receiver<Message>| async move {
+        let mut task: CommunicationTask<Message> =
+            executor.spawn_coroutine_with_receiver(|_, mut rx: Receiver<Message>| async move {
                 while let Some(msg) = rx.next().await {
                     match msg {
                         Message::Send(msg, sender) => {
@@ -218,21 +222,22 @@ mod tests {
             Get(futures::channel::oneshot::Sender<String>),
         }
 
-        let mut task = executor.spawn_coroutine_with_receiver_and_context(
-            State::default(),
-            |mut state, mut rx: Receiver<Message>| async move {
-                while let Some(msg) = rx.next().await {
-                    match msg {
-                        Message::Set(msg) => {
-                            state.message = msg;
-                        }
-                        Message::Get(resp) => {
-                            _ = resp.send(state.message.clone()).unwrap();
+        let mut task: CommunicationTask<Message> = executor
+            .spawn_coroutine_with_receiver_and_context(
+                State::default(),
+                |_, mut state, mut rx: Receiver<Message>| async move {
+                    while let Some(msg) = rx.next().await {
+                        match msg {
+                            Message::Set(msg) => {
+                                state.message = msg;
+                            }
+                            Message::Get(resp) => {
+                                _ = resp.send(state.message.clone()).unwrap();
+                            }
                         }
                     }
-                }
-            },
-        );
+                },
+            );
 
         futures::executor::block_on(async move {
             let msg = Message::Set("Hello".into());
@@ -254,13 +259,14 @@ mod tests {
             Send(String, futures::channel::oneshot::Sender<String>),
         }
 
-        let mut task = executor.spawn_unbounded_coroutine(|msg: Message| async move {
-            match msg {
-                Message::Send(msg, sender) => {
-                    sender.send(msg).unwrap();
+        let mut task: UnboundedCommunicationTask<Message, ()> =
+            executor.spawn_unbounded_coroutine(|_, msg: Message| async move {
+                match msg {
+                    Message::Send(msg, sender) => {
+                        sender.send(msg).unwrap();
+                    }
                 }
-            }
-        });
+            });
 
         let (tx, rx) = futures::channel::oneshot::channel::<String>();
         let msg = Message::Send("Hello".into(), tx);
@@ -277,16 +283,17 @@ mod tests {
 
         type Resp = futures::channel::oneshot::Sender<usize>;
 
-        let mut task = executor.spawn_unbounded_coroutine_with_context(
-            0usize,
-            |counter: &mut usize, resp: Resp| {
-                *counter += 1;
-                let n = *counter;
-                async move {
-                    resp.send(n).unwrap();
-                }
-            },
-        );
+        let mut task: UnboundedCommunicationTask<Resp, ()> = executor
+            .spawn_unbounded_coroutine_with_context(
+                0usize,
+                |_, counter: &mut usize, resp: Resp| {
+                    *counter += 1;
+                    let n = *counter;
+                    async move {
+                        resp.send(n).unwrap();
+                    }
+                },
+            );
 
         let (tx1, rx1) = futures::channel::oneshot::channel::<usize>();
         let (tx2, rx2) = futures::channel::oneshot::channel::<usize>();
@@ -307,17 +314,18 @@ mod tests {
             Send(String, futures::channel::oneshot::Sender<String>),
         }
 
-        let mut task = executor.spawn_unbounded_coroutine_with_receiver(
-            |mut rx: UnboundedReceiver<Message>| async move {
-                while let Some(msg) = rx.next().await {
-                    match msg {
-                        Message::Send(msg, sender) => {
-                            sender.send(msg).unwrap();
+        let mut task: UnboundedCommunicationTask<Message> = executor
+            .spawn_unbounded_coroutine_with_receiver(
+                |_, mut rx: UnboundedReceiver<Message>| async move {
+                    while let Some(msg) = rx.next().await {
+                        match msg {
+                            Message::Send(msg, sender) => {
+                                sender.send(msg).unwrap();
+                            }
                         }
                     }
-                }
-            },
-        );
+                },
+            );
 
         let (tx, rx) = futures::channel::oneshot::channel::<String>();
         let msg = Message::Send("Hello".into(), tx);
@@ -343,21 +351,22 @@ mod tests {
             Get(futures::channel::oneshot::Sender<String>),
         }
 
-        let mut task = executor.spawn_unbounded_coroutine_with_receiver_and_context(
-            State::default(),
-            |mut state, mut rx: UnboundedReceiver<Message>| async move {
-                while let Some(msg) = rx.next().await {
-                    match msg {
-                        Message::Set(msg) => {
-                            state.message = msg;
-                        }
-                        Message::Get(resp) => {
-                            _ = resp.send(state.message.clone()).unwrap();
+        let mut task: UnboundedCommunicationTask<Message> = executor
+            .spawn_unbounded_coroutine_with_receiver_and_context(
+                State::default(),
+                |_, mut state, mut rx: UnboundedReceiver<Message>| async move {
+                    while let Some(msg) = rx.next().await {
+                        match msg {
+                            Message::Set(msg) => {
+                                state.message = msg;
+                            }
+                            Message::Get(resp) => {
+                                _ = resp.send(state.message.clone()).unwrap();
+                            }
                         }
                     }
-                }
-            },
-        );
+                },
+            );
 
         futures::executor::block_on(async move {
             let msg = Message::Set("Hello".into());

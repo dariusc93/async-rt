@@ -130,6 +130,21 @@ enum InnerCompioHandle<T> {
     CompioFuture(Optional<CancelFuture<T>>),
 }
 
+// Note: We implement a custom drop due to compio `JoinHandle` cancellation of the taks upon drop
+//       therefore we need to detach the handle upon drop so it will continue running in the
+//       background to follow the same flow as the other executors implementations.
+#[cfg(all(feature = "compio", not(target_arch = "wasm32")))]
+impl<T> Drop for InnerCompioHandle<T> {
+    fn drop(&mut self) {
+        if let InnerCompioHandle::CompioHandle(handle) = self {
+            let Some(handle) = handle.take() else {
+                return;
+            };
+            handle.detach();
+        }
+    }
+}
+
 #[cfg(all(feature = "compio", not(target_arch = "wasm32")))]
 impl<T> Future for InnerCompioHandle<T> {
     type Output = Result<Option<T>, JoinError>;

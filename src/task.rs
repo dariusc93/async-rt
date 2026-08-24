@@ -5,9 +5,6 @@ use crate::{
     JoinHandle, Scope, ScopeExecutor, UnboundedCommunicationTask,
 };
 use futures::channel::mpsc::{Receiver, UnboundedReceiver};
-use std::future::Future;
-use std::pin::Pin;
-use std::task::{Context, Poll};
 
 static EXECUTOR: GlobalExecutor = GlobalExecutor;
 
@@ -267,25 +264,44 @@ where
     EXECUTOR.executor_scope(f)
 }
 
+#[cfg(not(all(feature = "tokio", not(target_arch = "wasm32"))))]
 #[derive(Default)]
 struct Yield {
     yielded: bool,
 }
 
-impl Future for Yield {
+#[cfg(not(all(feature = "tokio", not(target_arch = "wasm32"))))]
+impl core::future::Future for Yield {
     type Output = ();
 
-    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<()> {
+    fn poll(
+        mut self: core::pin::Pin<&mut Self>,
+        cx: &mut core::task::Context<'_>,
+    ) -> core::task::Poll<()> {
         if self.yielded {
-            return Poll::Ready(());
+            return core::task::Poll::Ready(());
         }
         self.yielded = true;
         cx.waker().wake_by_ref();
-        Poll::Pending
+        core::task::Poll::Pending
     }
 }
 
 /// Yields execution back to the runtime
 pub fn yield_now() -> impl Future<Output = ()> {
-    Yield::default()
+    #[cfg(all(feature = "tokio", not(target_arch = "wasm32")))]
+    {
+        tokio::task::yield_now()
+    }
+    #[cfg(not(all(feature = "tokio", not(target_arch = "wasm32"))))]
+    {
+        Yield::default()
+    }
+}
+
+/// Yields execution back to the runtime `amount` times.
+pub async fn yield_for(amount: usize) {
+    for _ in 0..amount {
+        yield_now().await;
+    }
 }

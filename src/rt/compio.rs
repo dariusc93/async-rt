@@ -1,0 +1,461 @@
+use crate::{Executor, ExecutorBlocking, ExecutorTimeout, InnerJoinHandle, JoinHandle};
+use compio::runtime::Runtime;
+
+/// Compio executor
+#[derive(Clone, Copy, Debug, PartialOrd, PartialEq, Eq)]
+pub struct CompioExecutor;
+
+impl Executor for CompioExecutor {
+    fn spawn<F>(&self, future: F) -> JoinHandle<F::Output>
+    where
+        F: Future + Send + 'static,
+        F::Output: Send + 'static,
+    {
+        let handle = compio::runtime::spawn(future);
+        let inner = InnerJoinHandle::compio(handle);
+        JoinHandle { inner }
+    }
+}
+
+impl ExecutorBlocking for CompioExecutor {
+    fn spawn_blocking<F, R>(&self, f: F) -> JoinHandle<R>
+    where
+        F: FnOnce() -> R + Send + 'static,
+        R: Send + 'static,
+    {
+        let handle = compio::runtime::spawn_blocking(f);
+        let inner = InnerJoinHandle::compio(handle);
+        JoinHandle { inner }
+    }
+}
+
+impl ExecutorTimeout for CompioExecutor {}
+
+/// Compio executor with an [`Runtime`]
+#[derive(Clone, Debug)]
+pub struct CompioRuntimeExecutor {
+    _runtime: Option<Runtime>,
+}
+
+impl CompioRuntimeExecutor {
+    /// Creates a compio runtime.
+    pub fn new() -> std::io::Result<Self> {
+        let runtime = Runtime::builder().build()?;
+        Ok(Self::with_runtime(runtime))
+    }
+
+    /// Create an executor with the supplied [`Runtime`].
+    ///
+    /// Note that the runtime remains alive until the final clone of this executor is
+    /// dropped.
+    pub fn with_runtime(runtime: Runtime) -> Self {
+        Self {
+            _runtime: Some(runtime),
+        }
+    }
+
+    /// Create an executor from the existing Runtime
+    ///
+    /// Note that this returns an error when called outside a Compio runtime context. The
+    /// resulting executor does not prevent that runtime from shutting down.
+    pub fn from_current_runtime() -> std::io::Result<Self> {
+        let handle =
+            Runtime::try_current().ok_or_else(|| std::io::Error::other("no runtime running"))?;
+        Ok(Self::with_runtime(handle))
+    }
+}
+
+impl Executor for CompioRuntimeExecutor {
+    fn spawn<F>(&self, future: F) -> JoinHandle<F::Output>
+    where
+        F: Future + Send + 'static,
+        F::Output: Send + 'static,
+    {
+        let handle = self
+            ._runtime
+            .as_ref()
+            .expect("Compio runtime is unavailable")
+            .spawn(future);
+        let inner = InnerJoinHandle::compio(handle);
+        JoinHandle { inner }
+    }
+}
+
+impl ExecutorBlocking for CompioRuntimeExecutor {
+    fn spawn_blocking<F, R>(&self, f: F) -> JoinHandle<R>
+    where
+        F: FnOnce() -> R + Send + 'static,
+        R: Send + 'static,
+    {
+        let handle = self
+            ._runtime
+            .as_ref()
+            .expect("Compio runtime is unavailable")
+            .spawn_blocking(f);
+        let inner = InnerJoinHandle::compio(handle);
+        JoinHandle { inner }
+    }
+}
+
+impl ExecutorTimeout for CompioRuntimeExecutor {}
+
+#[cfg(test)]
+mod tests {
+    use super::{CompioExecutor, CompioRuntimeExecutor};
+    use crate::error::JoinError;
+    use crate::{Executor, ExecutorBlocking, ExecutorTimeout, TimeoutError};
+    use futures::channel::mpsc::{Receiver, UnboundedReceiver};
+    use futures_timer::Delay;
+
+    #[compio::test]
+    async fn explicit_abort_is_reported_as_aborted() {
+        let handle = CompioExecutor.spawn(futures::future::pending::<()>());
+
+        handle.abort();
+
+        assert!(matches!(handle.await, Err(JoinError::Aborted)));
+    }
+
+    #[cfg(panic = "unwind")]
+    #[compio::test]
+    async fn task_panic_is_reported_as_panicked() {
+        async fn panic_task() -> usize {
+            panic!("expected task panic");
+        }
+
+        let handle = CompioExecutor.spawn(panic_task());
+
+        assert!(matches!(handle.await, Err(JoinError::Panicked)));
+    }
+
+    #[test]
+    fn runtime_shutdown_is_reported_as_cancelled() {
+        let executor = CompioRuntimeExecutor::new().unwrap();
+        let handle = executor.spawn(futures::future::pending::<()>());
+
+        drop(executor);
+
+        assert!(matches!(
+            futures::executor::block_on(handle),
+            Err(JoinError::Cancelled)
+        ));
+    }
+
+    #[compio::test]
+    async fn default_abortable_task() {
+        let executor = CompioExecutor;
+
+        async fn task(tx: futures::channel::oneshot::Sender<()>) {
+            futures_timer::Delay::new(std::time::Duration::from_secs(5)).await;
+            let _ = tx.send(());
+            unreachable!();
+        }
+
+        let (tx, rx) = futures::channel::oneshot::channel::<()>();
+
+        let handle = executor.spawn_abortable(task(tx));
+
+        drop(handle);
+        let result = rx.await;
+        assert!(result.is_err());
+    }
+
+    #[compio::test]
+    async fn task_coroutine() {
+        let executor = CompioExecutor;
+
+        enum Message {
+            Send(String, futures::channel::oneshot::Sender<String>),
+        }
+
+        let mut task = executor.spawn_coroutine(|msg: Message| async move {
+            match msg {
+                Message::Send(msg, sender) => {
+                    sender.send(msg).unwrap();
+                }
+            }
+        });
+
+        let (tx, rx) = futures::channel::oneshot::channel::<String>();
+        let msg = Message::Send("Hello".into(), tx);
+
+        task.send(msg).await.unwrap();
+        let resp = rx.await.unwrap();
+        assert_eq!(resp, "Hello");
+    }
+
+    #[compio::test]
+    async fn task_coroutine_with_context() {
+        let executor = CompioExecutor;
+
+        type Resp = futures::channel::oneshot::Sender<usize>;
+
+        let mut task =
+            executor.spawn_coroutine_with_context(0usize, |counter: &mut usize, resp: Resp| {
+                *counter += 1;
+                let n = *counter;
+                async move {
+                    resp.send(n).unwrap();
+                }
+            });
+
+        let (tx1, rx1) = futures::channel::oneshot::channel::<usize>();
+        let (tx2, rx2) = futures::channel::oneshot::channel::<usize>();
+        task.send(tx1).await.unwrap();
+        task.send(tx2).await.unwrap();
+        assert_eq!(rx1.await.unwrap(), 1);
+        assert_eq!(rx2.await.unwrap(), 2);
+    }
+
+    #[compio::test]
+    async fn task_coroutine_with_receiver() {
+        use futures::stream::StreamExt;
+        let executor = CompioExecutor;
+
+        enum Message {
+            Send(String, futures::channel::oneshot::Sender<String>),
+        }
+
+        let mut task =
+            executor.spawn_coroutine_with_receiver(|mut rx: Receiver<Message>| async move {
+                while let Some(msg) = rx.next().await {
+                    match msg {
+                        Message::Send(msg, sender) => {
+                            sender.send(msg).unwrap();
+                        }
+                    }
+                }
+            });
+
+        let (tx, rx) = futures::channel::oneshot::channel::<String>();
+        let msg = Message::Send("Hello".into(), tx);
+
+        task.send(msg).await.unwrap();
+        let resp = rx.await.unwrap();
+        assert_eq!(resp, "Hello");
+    }
+
+    #[compio::test]
+    async fn task_coroutine_with_receiver_and_context() {
+        use futures::stream::StreamExt;
+        let executor = CompioExecutor;
+
+        #[derive(Default)]
+        struct State {
+            message: String,
+        }
+
+        enum Message {
+            Set(String),
+            Get(futures::channel::oneshot::Sender<String>),
+        }
+
+        let mut task = executor.spawn_coroutine_with_receiver_and_context(
+            State::default(),
+            |mut state, mut rx: Receiver<Message>| async move {
+                while let Some(msg) = rx.next().await {
+                    match msg {
+                        Message::Set(msg) => {
+                            state.message = msg;
+                        }
+                        Message::Get(resp) => {
+                            resp.send(state.message.clone()).unwrap();
+                        }
+                    }
+                }
+            },
+        );
+
+        let msg = Message::Set("Hello".into());
+
+        task.send(msg).await.unwrap();
+        let (tx, rx) = futures::channel::oneshot::channel::<String>();
+        let msg = Message::Get(tx);
+        task.send(msg).await.unwrap();
+        let resp = rx.await.unwrap();
+        assert_eq!(resp, "Hello");
+    }
+
+    #[compio::test]
+    async fn task_unbounded_coroutine() {
+        let executor = CompioExecutor;
+
+        enum Message {
+            Send(String, futures::channel::oneshot::Sender<String>),
+        }
+
+        let mut task = executor.spawn_unbounded_coroutine(|msg: Message| async move {
+            match msg {
+                Message::Send(msg, sender) => {
+                    sender.send(msg).unwrap();
+                }
+            }
+        });
+
+        let (tx, rx) = futures::channel::oneshot::channel::<String>();
+        let msg = Message::Send("Hello".into(), tx);
+
+        task.send(msg).unwrap();
+        let resp = rx.await.unwrap();
+        assert_eq!(resp, "Hello");
+    }
+
+    #[compio::test]
+    async fn task_unbounded_coroutine_with_context() {
+        let executor = CompioExecutor;
+
+        type Resp = futures::channel::oneshot::Sender<usize>;
+
+        let mut task = executor.spawn_unbounded_coroutine_with_context(
+            0usize,
+            |counter: &mut usize, resp: Resp| {
+                *counter += 1;
+                let n = *counter;
+                async move {
+                    resp.send(n).unwrap();
+                }
+            },
+        );
+
+        let (tx1, rx1) = futures::channel::oneshot::channel::<usize>();
+        let (tx2, rx2) = futures::channel::oneshot::channel::<usize>();
+        task.send(tx1).unwrap();
+        task.send(tx2).unwrap();
+        assert_eq!(rx1.await.unwrap(), 1);
+        assert_eq!(rx2.await.unwrap(), 2);
+    }
+
+    #[compio::test]
+    async fn task_unbounded_coroutine_with_receiver() {
+        use futures::stream::StreamExt;
+        let executor = CompioExecutor;
+
+        enum Message {
+            Send(String, futures::channel::oneshot::Sender<String>),
+        }
+
+        let mut task = executor.spawn_unbounded_coroutine_with_receiver(
+            |mut rx: UnboundedReceiver<Message>| async move {
+                while let Some(msg) = rx.next().await {
+                    match msg {
+                        Message::Send(msg, sender) => {
+                            sender.send(msg).unwrap();
+                        }
+                    }
+                }
+            },
+        );
+
+        let (tx, rx) = futures::channel::oneshot::channel::<String>();
+        let msg = Message::Send("Hello".into(), tx);
+
+        task.send(msg).unwrap();
+        let resp = rx.await.unwrap();
+        assert_eq!(resp, "Hello");
+    }
+
+    #[compio::test]
+    async fn task_unbounded_coroutine_with_receiver_and_context() {
+        use futures::stream::StreamExt;
+        let executor = CompioExecutor;
+
+        #[derive(Default)]
+        struct State {
+            message: String,
+        }
+
+        enum Message {
+            Set(String),
+            Get(futures::channel::oneshot::Sender<String>),
+        }
+
+        let mut task = executor.spawn_unbounded_coroutine_with_receiver_and_context(
+            State::default(),
+            |mut state, mut rx: UnboundedReceiver<Message>| async move {
+                while let Some(msg) = rx.next().await {
+                    match msg {
+                        Message::Set(msg) => {
+                            state.message = msg;
+                        }
+                        Message::Get(resp) => {
+                            resp.send(state.message.clone()).unwrap();
+                        }
+                    }
+                }
+            },
+        );
+
+        let msg = Message::Set("Hello".into());
+
+        task.send(msg).unwrap();
+        let (tx, rx) = futures::channel::oneshot::channel::<String>();
+        let msg = Message::Get(tx);
+        task.send(msg).unwrap();
+        let resp = rx.await.unwrap();
+        assert_eq!(resp, "Hello");
+    }
+
+    #[compio::test]
+    async fn timeout_task() {
+        let executor = CompioExecutor;
+
+        let task = executor.spawn_timeout(
+            std::time::Duration::from_millis(10),
+            futures::future::pending::<()>(),
+        );
+        let resp = task.await.unwrap();
+        assert!(matches!(resp.unwrap_err(), TimeoutError));
+    }
+
+    #[compio::test]
+    async fn complete_before_timeout_task() {
+        let executor = CompioExecutor;
+
+        let task = executor.spawn_timeout(
+            std::time::Duration::from_millis(10),
+            futures::future::ready("Hello"),
+        );
+        let resp = task.await.unwrap();
+        assert!(resp.is_ok());
+        let result = resp.unwrap();
+        assert_eq!(result, "Hello");
+    }
+
+    #[compio::test]
+    async fn race_before_timeout_task() {
+        let executor = CompioExecutor;
+
+        let task = executor.spawn_timeout(std::time::Duration::from_millis(500), async {
+            Delay::new(std::time::Duration::from_millis(10)).await;
+            "Hello"
+        });
+        let resp = task.await.unwrap();
+        assert!(resp.is_ok());
+        let result = resp.unwrap();
+        assert_eq!(result, "Hello");
+    }
+
+    #[compio::test]
+    async fn abortable_timeout_task() {
+        let executor = CompioExecutor;
+
+        let task = executor.spawn_abortable_timeout(
+            std::time::Duration::from_millis(10),
+            futures::future::pending::<()>(),
+        );
+        let resp = task.await.unwrap();
+        assert!(matches!(resp.unwrap_err(), TimeoutError));
+    }
+
+    #[compio::test]
+    async fn blocking_task() {
+        let executor = CompioExecutor;
+
+        let task = executor.spawn_blocking(|| {
+            std::thread::sleep(std::time::Duration::from_millis(100));
+            "Hello"
+        });
+        let resp = task.await.unwrap();
+        assert_eq!(resp, "Hello");
+    }
+}

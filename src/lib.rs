@@ -22,11 +22,19 @@ use futures::future::{AbortHandle, AbortRegistration, Abortable};
 use futures::task::AtomicWaker;
 use futures::{FutureExt, SinkExt, StreamExt, TryFutureExt};
 use futures_timeout::Timeout;
+#[cfg(all(feature = "compio", not(target_arch = "wasm32")))]
+use parking_lot::Mutex;
 use pollable_map::optional::Optional;
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll};
+
+#[cfg(all(feature = "compio", not(target_arch = "wasm32")))]
+type CancelFuture<T> = Pin<Box<dyn Future<Output = Option<T>> + Send + 'static>>;
+
+#[cfg(all(feature = "compio", not(target_arch = "wasm32")))]
+type StartCompioCancel<T> = fn(&Mutex<InnerCompioHandle<T>>, &AtomicBool);
 
 #[cfg_attr(feature = "tokio", allow(dead_code))]
 pub(crate) struct CompletionGuard {
@@ -65,10 +73,11 @@ where
 #[cfg(all(
     not(feature = "threadpool"),
     not(feature = "tokio"),
+    not(feature = "compio"),
     not(target_arch = "wasm32")
 ))]
 compile_error!(
-    "At least one runtime (i.e 'tokio', 'threadpool', 'wasm-bindgen-futures') must be enabled"
+    "At least one runtime (i.e `compio`, 'tokio', 'threadpool', 'wasm-bindgen-futures') must be enabled"
 );
 
 /// An owned permission to join on a task (await its termination).
@@ -99,6 +108,12 @@ enum InnerJoinHandle<T> {
         handle: Optional<::tokio::task::JoinHandle<T>>,
         abort_requested: AtomicBool,
     },
+    #[cfg(all(feature = "compio", not(target_arch = "wasm32")))]
+    CompioHandle {
+        handle: Mutex<InnerCompioHandle<T>>,
+        abort_requested: AtomicBool,
+        start_cancel: StartCompioCancel<T>,
+    },
     #[allow(dead_code)]
     CustomHandle {
         inner: Optional<futures::channel::oneshot::Receiver<Result<T, JoinError>>>,
@@ -109,12 +124,89 @@ enum InnerJoinHandle<T> {
     Empty,
 }
 
+#[cfg(all(feature = "compio", not(target_arch = "wasm32")))]
+enum InnerCompioHandle<T> {
+    CompioHandle(Option<::compio::runtime::JoinHandle<T>>),
+    CompioFuture(Optional<CancelFuture<T>>),
+}
+
+#[cfg(all(feature = "compio", not(target_arch = "wasm32")))]
+impl<T> Future for InnerCompioHandle<T> {
+    type Output = Result<Option<T>, JoinError>;
+    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        let this = &mut *self;
+
+        match this {
+            InnerCompioHandle::CompioHandle(handle) => {
+                let Some(mut handle) = handle.take() else {
+                    return Poll::Ready(Ok(None));
+                };
+                match Pin::new(&mut handle).poll(cx) {
+                    Poll::Ready(result) => Poll::Ready(result.map(Some).map_err(JoinError::from)),
+                    Poll::Pending => {
+                        *this = InnerCompioHandle::CompioHandle(Some(handle));
+                        Poll::Pending
+                    }
+                }
+            }
+            InnerCompioHandle::CompioFuture(future) => match Pin::new(future).poll(cx) {
+                Poll::Ready(result) => Poll::Ready(Ok(result)),
+                Poll::Pending => Poll::Pending,
+            },
+        }
+    }
+}
+
+#[cfg(all(feature = "compio", not(target_arch = "wasm32")))]
+fn start_compio_cancel<T: Send + 'static>(
+    state: &Mutex<InnerCompioHandle<T>>,
+    requested: &AtomicBool,
+) {
+    let mut state = state.lock();
+
+    let InnerCompioHandle::CompioHandle(slot) = &mut *state else {
+        return;
+    };
+    let Some(handle) = slot.take() else {
+        return;
+    };
+
+    requested.store(true, Ordering::Release);
+
+    let future: CancelFuture<T> = Box::pin(handle.cancel());
+    *state = InnerCompioHandle::CompioFuture(Optional::new(future));
+}
+
+#[cfg(all(feature = "compio", not(target_arch = "wasm32")))]
+impl<T> InnerCompioHandle<T> {
+    fn is_finished(&self) -> bool {
+        match self {
+            InnerCompioHandle::CompioHandle(handle) => {
+                handle.as_ref().map(|h| h.is_finished()).unwrap_or(true)
+            }
+            InnerCompioHandle::CompioFuture(_) => true,
+        }
+    }
+}
+
 impl<T> InnerJoinHandle<T> {
     #[cfg(all(feature = "tokio", not(target_arch = "wasm32")))]
     fn tokio(handle: ::tokio::task::JoinHandle<T>) -> Self {
         Self::TokioHandle {
             handle: Optional::new(handle),
             abort_requested: AtomicBool::new(false),
+        }
+    }
+
+    #[cfg(all(feature = "compio", not(target_arch = "wasm32")))]
+    fn compio(handle: ::compio::runtime::JoinHandle<T>) -> Self
+    where
+        T: Send + 'static,
+    {
+        Self::CompioHandle {
+            handle: Mutex::new(InnerCompioHandle::CompioHandle(Some(handle))),
+            abort_requested: AtomicBool::new(false),
+            start_cancel: start_compio_cancel::<T>,
         }
     }
 }
@@ -146,6 +238,14 @@ impl<T> JoinHandle<T> {
                     handle.abort();
                 }
             }
+            #[cfg(all(feature = "compio", not(target_arch = "wasm32")))]
+            InnerJoinHandle::CompioHandle {
+                handle,
+                abort_requested,
+                start_cancel,
+            } => {
+                start_cancel(handle, abort_requested);
+            }
             InnerJoinHandle::CustomHandle { handle, .. } => handle.abort(),
             InnerJoinHandle::Empty => {}
         }
@@ -161,6 +261,8 @@ impl<T> JoinHandle<T> {
             InnerJoinHandle::TokioHandle { handle, .. } => {
                 handle.as_ref().map(|h| h.is_finished()).unwrap_or(true)
             }
+            #[cfg(all(feature = "compio", not(target_arch = "wasm32")))]
+            InnerJoinHandle::CompioHandle { handle, .. } => handle.lock().is_finished(),
             InnerJoinHandle::CustomHandle {
                 inner, finished, ..
             } => finished.load(Ordering::Acquire) || inner.is_none(),
@@ -209,6 +311,27 @@ impl<T> Future for JoinHandle<T> {
                 match fut {
                     Ok(val) => Poll::Ready(Ok(val)),
                     Err(e) if e.is_cancelled() && abort_requested.load(Ordering::Acquire) => {
+                        Poll::Ready(Err(JoinError::Aborted))
+                    }
+                    Err(e) => Poll::Ready(Err(e.into())),
+                }
+            }
+            #[cfg(all(feature = "compio", not(target_arch = "wasm32")))]
+            InnerJoinHandle::CompioHandle {
+                handle,
+                abort_requested,
+                ..
+            } => {
+                let handle = &mut *handle.lock();
+                let fut = futures::ready!(Pin::new(handle).poll(cx));
+
+                match fut {
+                    Ok(Some(val)) => Poll::Ready(Ok(val)),
+                    Ok(None) if abort_requested.load(Ordering::Acquire) => {
+                        Poll::Ready(Err(JoinError::Aborted))
+                    }
+                    Ok(None) => Poll::Ready(Err(JoinError::Empty)),
+                    Err(_) if abort_requested.load(Ordering::Acquire) => {
                         Poll::Ready(Err(JoinError::Aborted))
                     }
                     Err(e) => Poll::Ready(Err(e.into())),

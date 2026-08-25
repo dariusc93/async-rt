@@ -3,8 +3,8 @@ use std::future::Future;
 
 /// Executor that selects an available runtime backend at compile time.
 ///
-/// * On non-Wasm targets with the `tokio` feature enabled, it uses
-///   `TokioExecutor`.
+/// * On non-Wasm targets with the `tokio` or `compio` feature enabled, it uses
+///   `TokioExecutor` or `CompioExecutor`.
 /// * On non-Wasm targets with the `threadpool` feature enabled and the `tokio`
 ///   feature disabled, it uses `ThreadPoolExecutor`.
 /// * On Wasm targets, it uses `WasmExecutor`, backed by

@@ -37,6 +37,16 @@ impl From<tokio::task::JoinError> for JoinError {
     }
 }
 
+#[cfg(all(feature = "compio", not(target_arch = "wasm32")))]
+impl From<compio::runtime::JoinError> for JoinError {
+    fn from(err: compio::runtime::JoinError) -> Self {
+        match err {
+            compio::runtime::JoinError::Cancelled => JoinError::Cancelled,
+            compio::runtime::JoinError::Panicked(_) => JoinError::Panicked,
+        }
+    }
+}
+
 /// Error indicating a task did not complete before its timeout elapsed.
 ///
 /// Returned as the inner error of a timeout task's output, for example from

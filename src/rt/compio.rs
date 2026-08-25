@@ -32,6 +32,12 @@ impl ExecutorBlocking for CompioExecutor {
 impl ExecutorTimeout for CompioExecutor {}
 
 /// Compio executor with an [`Runtime`]
+///
+/// # Note
+///
+/// Creating or supplying this runtime by itself will not drive task to completion when spawned.
+/// This will be useful if you are already calling [`CompioRuntimeExecutor::from_current_runtime`] or
+/// [`CompioRuntimeExecutor::with_runtime`] with an existing runtime.
 #[derive(Clone, Debug)]
 pub struct CompioRuntimeExecutor {
     _runtime: Option<Runtime>,
@@ -39,7 +45,9 @@ pub struct CompioRuntimeExecutor {
 
 impl CompioRuntimeExecutor {
     /// Creates a compio runtime.
-    pub fn new() -> std::io::Result<Self> {
+    // TODO: make public when ExecutorBlockOn is impl
+    #[allow(dead_code)]
+    pub(crate) fn new() -> std::io::Result<Self> {
         let runtime = Runtime::builder().build()?;
         Ok(Self::with_runtime(runtime))
     }
@@ -105,6 +113,7 @@ mod tests {
     use futures_timer::Delay;
     use std::sync::Arc;
     use std::sync::atomic::{AtomicBool, Ordering};
+    use futures::{SinkExt, StreamExt};
 
     #[compio::test]
     async fn explicit_abort_is_reported_as_aborted() {
@@ -114,6 +123,18 @@ mod tests {
 
         assert!(handle.is_finished());
         assert!(matches!(handle.await, Err(JoinError::Aborted)));
+    }
+
+    #[compio::test]
+    async fn joinhandle_doesnt_abort_on_drop() {
+        let (mut tx, mut rx) = futures::channel::mpsc::channel(1);
+        let handle = CompioExecutor.spawn(async move {
+            let _ = tx.send(()).await;
+        });
+        drop(handle);
+
+        let val = rx.next().await;
+        assert!(val.is_some());
     }
 
     #[compio::test]

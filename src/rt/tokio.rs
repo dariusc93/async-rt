@@ -1,4 +1,6 @@
-use crate::{Executor, ExecutorBlocking, ExecutorTimeout, InnerJoinHandle, JoinHandle};
+use crate::{
+    Executor, ExecutorBlockOn, ExecutorBlocking, ExecutorTimeout, InnerJoinHandle, JoinHandle,
+};
 use std::future::Future;
 use std::sync::Arc;
 use tokio::runtime::{Handle, Runtime};
@@ -32,6 +34,15 @@ impl ExecutorBlocking for TokioExecutor {
 }
 
 impl ExecutorTimeout for TokioExecutor {}
+
+impl ExecutorBlockOn for TokioExecutor {
+    /// Blocks the current thread until the provided future has completed.
+    /// Note that this requires the current thread to be a tokio runtime thread.
+    fn block_on<F: Future>(&self, f: F) -> F::Output {
+        let handle = Handle::current();
+        handle.block_on(f)
+    }
+}
 
 /// Tokio executor with an [`Runtime`] or [`Handle`]
 #[derive(Clone, Debug)]
@@ -117,11 +128,26 @@ impl ExecutorBlocking for TokioRuntimeExecutor {
 
 impl ExecutorTimeout for TokioRuntimeExecutor {}
 
+impl ExecutorBlockOn for TokioRuntimeExecutor {
+    /// Blocks the current thread until the provided future has completed.
+    ///
+    /// Note that when this executor owns a [`Runtime`], that runtime is driven directly.
+    /// When created from a [`Handle`], this delegates to [`Handle::block_on`] and
+    /// inherits its runtime-specific limitations. See [`Runtime::block_on`] and
+    /// [`Handle::block_on`] for details.
+    fn block_on<F: Future>(&self, f: F) -> F::Output {
+        match self._runtime.as_ref() {
+            None => self.handle.block_on(f),
+            Some(runtime) => runtime.block_on(f),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::{TokioExecutor, TokioRuntimeExecutor};
     use crate::error::JoinError;
-    use crate::{Executor, ExecutorBlocking, ExecutorTimeout, TimeoutError};
+    use crate::{Executor, ExecutorBlockOn, ExecutorBlocking, ExecutorTimeout, TimeoutError};
     use futures::channel::mpsc::{Receiver, UnboundedReceiver};
     use futures_timer::Delay;
 
@@ -157,6 +183,14 @@ mod tests {
             futures::executor::block_on(handle),
             Err(JoinError::Cancelled)
         ));
+    }
+
+    #[test]
+    fn block_on_drives_owned_current_thread_runtime() {
+        let executor = TokioRuntimeExecutor::with_single_thread().unwrap();
+        let handle = executor.spawn(async { 42 });
+
+        assert_eq!(executor.block_on(handle).unwrap(), 42);
     }
 
     #[tokio::test]

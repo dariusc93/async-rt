@@ -1,5 +1,7 @@
 use crate::error::TimeoutError;
-use crate::{AbortableJoinHandle, Executor, ExecutorBlocking, ExecutorTimeout, JoinHandle};
+use crate::{
+    AbortableJoinHandle, Executor, ExecutorBlockOn, ExecutorBlocking, ExecutorTimeout, JoinHandle,
+};
 use std::future::Future;
 use std::rc::Rc;
 use std::time::Duration;
@@ -56,5 +58,14 @@ where
         F::Output: Send + 'static,
     {
         (**self).spawn_abortable_timeout(duration, f)
+    }
+}
+
+impl<E> ExecutorBlockOn for Rc<E>
+where
+    E: ExecutorBlockOn,
+{
+    fn block_on<F: Future>(&self, f: F) -> F::Output {
+        (**self).block_on(f)
     }
 }

@@ -1,5 +1,7 @@
 use crate::error::TimeoutError;
-use crate::{AbortableJoinHandle, Executor, ExecutorBlocking, ExecutorTimeout, JoinHandle};
+use crate::{
+    AbortableJoinHandle, Executor, ExecutorBlockOn, ExecutorBlocking, ExecutorTimeout, JoinHandle,
+};
 use either::Either;
 use std::future::Future;
 use std::time::Duration;
@@ -70,6 +72,19 @@ where
         match self {
             Either::Left(l) => l.spawn_abortable_timeout(duration, f),
             Either::Right(r) => r.spawn_abortable_timeout(duration, f),
+        }
+    }
+}
+
+impl<L, R> ExecutorBlockOn for Either<L, R>
+where
+    L: ExecutorBlockOn,
+    R: ExecutorBlockOn,
+{
+    fn block_on<F: Future>(&self, f: F) -> F::Output {
+        match self {
+            Either::Left(l) => l.block_on(f),
+            Either::Right(r) => r.block_on(f),
         }
     }
 }

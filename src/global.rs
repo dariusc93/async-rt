@@ -1,4 +1,4 @@
-use crate::{Executor, ExecutorBlocking, ExecutorTimeout, JoinHandle};
+use crate::{Executor, ExecutorBlockOn, ExecutorBlocking, ExecutorTimeout, JoinHandle};
 use std::future::Future;
 
 /// Executor that selects an available runtime backend at compile time.
@@ -129,3 +129,41 @@ impl ExecutorBlocking for GlobalExecutor {
 }
 
 impl ExecutorTimeout for GlobalExecutor {}
+
+impl ExecutorBlockOn for GlobalExecutor {
+    #[cfg(all(feature = "tokio", not(target_arch = "wasm32")))]
+    fn block_on<F: Future>(&self, future: F) -> F::Output {
+        crate::rt::tokio::TokioExecutor.block_on(future)
+    }
+
+    #[cfg(all(
+        feature = "compio",
+        not(any(feature = "tokio", target_arch = "wasm32"))
+    ))]
+    fn block_on<F: Future>(&self, future: F) -> F::Output {
+        crate::rt::compio::CompioExecutor.block_on(f)
+    }
+
+    #[cfg(all(
+        feature = "threadpool",
+        not(any(feature = "tokio", feature = "compio", target_arch = "wasm32"))
+    ))]
+    fn block_on<F: Future>(&self, future: F) -> F::Output {
+        crate::rt::threadpool::ThreadPoolExecutor.block_on(f)
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    fn block_on<F: Future>(&self, future: F) -> F::Output {
+        crate::rt::wasm::WasmExecutor.block_on(f)
+    }
+
+    #[cfg(all(
+        not(feature = "threadpool"),
+        not(feature = "tokio"),
+        not(feature = "compio"),
+        not(target_arch = "wasm32")
+    ))]
+    fn block_on<F: Future>(&self, _: F) -> F::Output {
+        unimplemented!()
+    }
+}

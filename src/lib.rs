@@ -1035,6 +1035,11 @@ pub trait ExecutorTimeout: Executor {
     }
 }
 
+pub trait ExecutorBlockOn: Executor {
+    /// Blocks the current thread until the provided future has completed.
+    fn block_on<F: Future>(&self, future: F) -> F::Output;
+}
+
 #[cfg(test)]
 mod tests {
     use crate::CompletionGuard;

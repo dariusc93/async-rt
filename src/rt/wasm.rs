@@ -1,6 +1,6 @@
 use crate::{
-    CompletionGuard, Executor, ExecutorBlocking, ExecutorTimeout, InnerJoinHandle, JoinHandle,
-    abortable_result,
+    CompletionGuard, Executor, ExecutorBlockOn, ExecutorBlocking, ExecutorTimeout, InnerJoinHandle,
+    JoinHandle, abortable_result,
 };
 use futures::future::AbortHandle;
 use pollable_map::optional::Optional;
@@ -60,3 +60,9 @@ impl ExecutorBlocking for WasmExecutor {
 }
 
 impl ExecutorTimeout for WasmExecutor {}
+
+impl ExecutorBlockOn for WasmExecutor {
+    fn block_on<F: Future>(&self, _: F) -> F::Output {
+        unimplemented!("wasm32 executor does not implement block_on")
+    }
+}

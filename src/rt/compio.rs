@@ -1,4 +1,6 @@
-use crate::{Executor, ExecutorBlocking, ExecutorTimeout, InnerJoinHandle, JoinHandle};
+use crate::{
+    Executor, ExecutorBlockOn, ExecutorBlocking, ExecutorTimeout, InnerJoinHandle, JoinHandle,
+};
 use compio::runtime::Runtime;
 
 /// Compio executor
@@ -31,6 +33,13 @@ impl ExecutorBlocking for CompioExecutor {
 
 impl ExecutorTimeout for CompioExecutor {}
 
+impl ExecutorBlockOn for CompioExecutor {
+    fn block_on<F: Future>(&self, f: F) -> F::Output {
+        let handle = Runtime::current();
+        handle.block_on(f)
+    }
+}
+
 /// Compio executor with an [`Runtime`]
 ///
 /// # Note
@@ -45,9 +54,7 @@ pub struct CompioRuntimeExecutor {
 
 impl CompioRuntimeExecutor {
     /// Creates a compio runtime.
-    // TODO: make public when ExecutorBlockOn is impl
-    #[allow(dead_code)]
-    pub(crate) fn new() -> std::io::Result<Self> {
+    pub fn new() -> std::io::Result<Self> {
         let runtime = Runtime::builder().build()?;
         Ok(Self::with_runtime(runtime))
     }
@@ -97,11 +104,17 @@ impl ExecutorBlocking for CompioRuntimeExecutor {
 
 impl ExecutorTimeout for CompioRuntimeExecutor {}
 
+impl ExecutorBlockOn for CompioRuntimeExecutor {
+    fn block_on<F: Future>(&self, f: F) -> F::Output {
+        self.runtime.block_on(f)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::{CompioExecutor, CompioRuntimeExecutor};
     use crate::error::JoinError;
-    use crate::{Executor, ExecutorBlocking, ExecutorTimeout, TimeoutError};
+    use crate::{Executor, ExecutorBlockOn, ExecutorBlocking, ExecutorTimeout, TimeoutError};
     use futures::channel::mpsc::{Receiver, UnboundedReceiver};
     use futures::{SinkExt, StreamExt};
     use futures_timer::Delay;
@@ -128,6 +141,21 @@ mod tests {
 
         let val = rx.next().await;
         assert!(val.is_some());
+    }
+
+    #[test]
+    fn drive_runtime_to_completion() {
+        let runtime = CompioRuntimeExecutor::new().unwrap();
+        runtime.block_on(async {
+            let (mut tx, mut rx) = futures::channel::mpsc::channel(1);
+
+            runtime.spawn(async move {
+                let _ = tx.send(()).await;
+            });
+
+            let val = rx.next().await;
+            assert!(val.is_some());
+        });
     }
 
     #[compio::test]

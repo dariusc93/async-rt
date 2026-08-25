@@ -1,6 +1,6 @@
 use crate::{
-    CompletionGuard, Executor, ExecutorBlocking, ExecutorTimeout, InnerJoinHandle, JoinHandle,
-    abortable_result,
+    CompletionGuard, Executor, ExecutorBlockOn, ExecutorBlocking, ExecutorTimeout, InnerJoinHandle,
+    JoinHandle, abortable_result,
 };
 use futures::executor::ThreadPool;
 use futures::future::AbortHandle;
@@ -72,6 +72,12 @@ impl ExecutorBlocking for ThreadPoolExecutor {
 }
 
 impl ExecutorTimeout for ThreadPoolExecutor {}
+
+impl ExecutorBlockOn for ThreadPoolExecutor {
+    fn block_on<F: Future>(&self, f: F) -> F::Output {
+        futures::executor::block_on(f)
+    }
+}
 
 #[cfg(test)]
 mod tests {

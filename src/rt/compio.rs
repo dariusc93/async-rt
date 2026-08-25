@@ -53,6 +53,9 @@ impl CompioRuntimeExecutor {
     }
 
     /// Create an executor with the supplied [`Runtime`].
+    ///
+    /// Note that this executor schedules tasks but does not drive the runtime.
+    /// The supplied runtime must be driven externally.
     pub fn with_runtime(runtime: Runtime) -> Self {
         Self { _runtime: runtime }
     }

@@ -5,7 +5,7 @@ use std::future::Future;
 ///
 /// * On non-Wasm targets with the `tokio` or `compio` feature enabled, it uses
 ///   `TokioExecutor` or `CompioExecutor`.
-/// * On non-Wasm targets with the `threadpool` feature enabled and the `tokio`
+/// * On non-Wasm targets with the `threadpool` feature enabled and the `tokio` or `compio`
 ///   feature disabled, it uses `ThreadPoolExecutor`.
 /// * On Wasm targets, it uses `WasmExecutor`, backed by
 ///   `wasm-bindgen-futures`.

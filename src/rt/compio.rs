@@ -40,7 +40,7 @@ impl ExecutorTimeout for CompioExecutor {}
 /// [`CompioRuntimeExecutor::with_runtime`] with an existing runtime.
 #[derive(Clone, Debug)]
 pub struct CompioRuntimeExecutor {
-    _runtime: Option<Runtime>,
+    _runtime: Runtime,
 }
 
 impl CompioRuntimeExecutor {
@@ -54,9 +54,7 @@ impl CompioRuntimeExecutor {
 
     /// Create an executor with the supplied [`Runtime`].
     pub fn with_runtime(runtime: Runtime) -> Self {
-        Self {
-            _runtime: Some(runtime),
-        }
+        Self { _runtime: runtime }
     }
 
     /// Create an executor from the existing Runtime
@@ -76,11 +74,7 @@ impl Executor for CompioRuntimeExecutor {
         F: Future + Send + 'static,
         F::Output: Send + 'static,
     {
-        let handle = self
-            ._runtime
-            .as_ref()
-            .expect("Compio runtime is unavailable")
-            .spawn(future);
+        let handle = self._runtime.spawn(future);
         let inner = InnerJoinHandle::compio(handle);
         JoinHandle { inner }
     }
@@ -92,11 +86,7 @@ impl ExecutorBlocking for CompioRuntimeExecutor {
         F: FnOnce() -> R + Send + 'static,
         R: Send + 'static,
     {
-        let handle = self
-            ._runtime
-            .as_ref()
-            .expect("Compio runtime is unavailable")
-            .spawn_blocking(f);
+        let handle = self._runtime.spawn_blocking(f);
         let inner = InnerJoinHandle::compio(handle);
         JoinHandle { inner }
     }
@@ -110,10 +100,10 @@ mod tests {
     use crate::error::JoinError;
     use crate::{Executor, ExecutorBlocking, ExecutorTimeout, TimeoutError};
     use futures::channel::mpsc::{Receiver, UnboundedReceiver};
+    use futures::{SinkExt, StreamExt};
     use futures_timer::Delay;
     use std::sync::Arc;
     use std::sync::atomic::{AtomicBool, Ordering};
-    use futures::{SinkExt, StreamExt};
 
     #[compio::test]
     async fn explicit_abort_is_reported_as_aborted() {

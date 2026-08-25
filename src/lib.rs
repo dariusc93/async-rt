@@ -349,7 +349,7 @@ impl<T> Future for JoinHandle<T> {
                     Err(_) if abort_requested.load(Ordering::Acquire) => {
                         Poll::Ready(Err(JoinError::Aborted))
                     }
-                    Err(e) => Poll::Ready(Err(e.into())),
+                    Err(e) => Poll::Ready(Err(e)),
                 }
             }
             InnerJoinHandle::CustomHandle { inner, .. } => {

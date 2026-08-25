@@ -31,7 +31,7 @@ use std::sync::Arc;
 use std::task::{Context, Poll};
 
 #[cfg(all(feature = "compio", not(target_arch = "wasm32")))]
-type CancelFuture<T> = Pin<Box<dyn Future<Output = Option<T>> + Send + 'static>>;
+type BoxCancelFuture<T> = Pin<Box<dyn Future<Output = Option<T>> + Send + 'static>>;
 
 #[cfg(all(feature = "compio", not(target_arch = "wasm32")))]
 type StartCompioCancel<T> = fn(&Mutex<InnerCompioHandle<T>>, &AtomicBool);
@@ -126,17 +126,67 @@ enum InnerJoinHandle<T> {
 
 #[cfg(all(feature = "compio", not(target_arch = "wasm32")))]
 enum InnerCompioHandle<T> {
-    CompioHandle(Option<::compio::runtime::JoinHandle<T>>),
-    CompioFuture(Optional<CancelFuture<T>>),
+    Running(Option<::compio::runtime::JoinHandle<T>>),
+    Cancelling(CompioCancel<T>),
+    Ready(Option<Option<T>>),
 }
 
-// Note: We implement a custom drop due to compio `JoinHandle` cancellation of the taks upon drop
+#[cfg(all(feature = "compio", not(target_arch = "wasm32")))]
+impl<T> Unpin for InnerCompioHandle<T> {}
+
+#[cfg(all(feature = "compio", not(target_arch = "wasm32")))]
+struct CompioCancelWake {
+    outer: AtomicWaker,
+}
+
+#[cfg(all(feature = "compio", not(target_arch = "wasm32")))]
+impl futures::task::ArcWake for CompioCancelWake {
+    fn wake_by_ref(arc_self: &Arc<Self>) {
+        arc_self.outer.wake();
+    }
+}
+
+#[cfg(all(feature = "compio", not(target_arch = "wasm32")))]
+struct CompioCancel<T> {
+    future: BoxCancelFuture<T>,
+    wake: Arc<CompioCancelWake>,
+}
+
+#[cfg(all(feature = "compio", not(target_arch = "wasm32")))]
+impl<T> CompioCancel<T> {
+    fn new(future: BoxCancelFuture<T>) -> Self {
+        Self {
+            future,
+            wake: Arc::new(CompioCancelWake {
+                outer: AtomicWaker::new(),
+            }),
+        }
+    }
+
+    fn poll_inner(&mut self) -> Poll<Option<T>> {
+        let waker = futures::task::waker(self.wake.clone());
+        let mut cx = Context::from_waker(&waker);
+        self.future.as_mut().poll(&mut cx)
+    }
+}
+
+#[cfg(all(feature = "compio", not(target_arch = "wasm32")))]
+impl<T> Future for CompioCancel<T> {
+    type Output = Option<T>;
+
+    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        self.wake.outer.register(cx.waker());
+        self.poll_inner()
+    }
+}
+
+// Note: We implement a custom drop due to compio `JoinHandle` cancellation of the task upon drop
 //       therefore we need to detach the handle upon drop so it will continue running in the
 //       background to follow the same flow as the other executors implementations.
 #[cfg(all(feature = "compio", not(target_arch = "wasm32")))]
 impl<T> Drop for InnerCompioHandle<T> {
     fn drop(&mut self) {
-        if let InnerCompioHandle::CompioHandle(handle) = self {
+        if let InnerCompioHandle::Running(handle) = self {
             let Some(handle) = handle.take() else {
                 return;
             };
@@ -152,21 +202,28 @@ impl<T> Future for InnerCompioHandle<T> {
         let this = &mut *self;
 
         match this {
-            InnerCompioHandle::CompioHandle(handle) => {
+            InnerCompioHandle::Running(handle) => {
                 let Some(mut handle) = handle.take() else {
                     return Poll::Ready(Ok(None));
                 };
                 match Pin::new(&mut handle).poll(cx) {
                     Poll::Ready(result) => Poll::Ready(result.map(Some).map_err(JoinError::from)),
                     Poll::Pending => {
-                        *this = InnerCompioHandle::CompioHandle(Some(handle));
+                        *this = InnerCompioHandle::Running(Some(handle));
                         Poll::Pending
                     }
                 }
             }
-            InnerCompioHandle::CompioFuture(future) => match Pin::new(future).poll(cx) {
-                Poll::Ready(result) => Poll::Ready(Ok(result)),
+            InnerCompioHandle::Cancelling(future) => match Pin::new(future).poll(cx) {
+                Poll::Ready(result) => {
+                    *this = InnerCompioHandle::Ready(None);
+                    Poll::Ready(Ok(result))
+                }
                 Poll::Pending => Poll::Pending,
+            },
+            InnerCompioHandle::Ready(result) => match result.take() {
+                Some(result) => Poll::Ready(Ok(result)),
+                None => Poll::Ready(Err(JoinError::Empty)),
             },
         }
     }
@@ -179,7 +236,7 @@ fn start_compio_cancel<T: Send + 'static>(
 ) {
     let mut state = state.lock();
 
-    let InnerCompioHandle::CompioHandle(slot) = &mut *state else {
+    let InnerCompioHandle::Running(slot) = &mut *state else {
         return;
     };
     let Some(handle) = slot.take() else {
@@ -188,18 +245,29 @@ fn start_compio_cancel<T: Send + 'static>(
 
     requested.store(true, Ordering::Release);
 
-    let future: CancelFuture<T> = Box::pin(handle.cancel());
-    *state = InnerCompioHandle::CompioFuture(Optional::new(future));
+    let future: BoxCancelFuture<T> = Box::pin(handle.cancel());
+    let mut future = CompioCancel::new(future);
+    *state = match future.poll_inner() {
+        Poll::Ready(result) => InnerCompioHandle::Ready(Some(result)),
+        Poll::Pending => InnerCompioHandle::Cancelling(future),
+    };
 }
 
 #[cfg(all(feature = "compio", not(target_arch = "wasm32")))]
 impl<T> InnerCompioHandle<T> {
-    fn is_finished(&self) -> bool {
+    fn is_finished(&mut self) -> bool {
         match self {
-            InnerCompioHandle::CompioHandle(handle) => {
+            InnerCompioHandle::Running(handle) => {
                 handle.as_ref().map(|h| h.is_finished()).unwrap_or(true)
             }
-            InnerCompioHandle::CompioFuture(_) => true,
+            InnerCompioHandle::Cancelling(future) => match future.poll_inner() {
+                Poll::Ready(result) => {
+                    *self = InnerCompioHandle::Ready(Some(result));
+                    true
+                }
+                Poll::Pending => false,
+            },
+            InnerCompioHandle::Ready(_) => true,
         }
     }
 }
@@ -219,7 +287,7 @@ impl<T> InnerJoinHandle<T> {
         T: Send + 'static,
     {
         Self::CompioHandle {
-            handle: Mutex::new(InnerCompioHandle::CompioHandle(Some(handle))),
+            handle: Mutex::new(InnerCompioHandle::Running(Some(handle))),
             abort_requested: AtomicBool::new(false),
             start_cancel: start_compio_cancel::<T>,
         }
@@ -404,6 +472,7 @@ impl<T> AbortableJoinHandle<T> {
     /// See [`JoinHandle::abort`]
     pub fn abort(&self) {
         self.handle.inner.lock().abort();
+        self.handle.wake();
     }
 
     /// See [`JoinHandle::is_finished`]

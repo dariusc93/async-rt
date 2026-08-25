@@ -103,6 +103,8 @@ mod tests {
     use crate::{Executor, ExecutorBlocking, ExecutorTimeout, TimeoutError};
     use futures::channel::mpsc::{Receiver, UnboundedReceiver};
     use futures_timer::Delay;
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicBool, Ordering};
 
     #[compio::test]
     async fn explicit_abort_is_reported_as_aborted() {
@@ -110,6 +112,36 @@ mod tests {
 
         handle.abort();
 
+        assert!(handle.is_finished());
+        assert!(matches!(handle.await, Err(JoinError::Aborted)));
+    }
+
+    #[compio::test]
+    async fn abort_is_requested_before_handle_is_awaited() {
+        struct DropGuard(Arc<AtomicBool>);
+
+        impl Drop for DropGuard {
+            fn drop(&mut self) {
+                self.0.store(true, Ordering::Release);
+            }
+        }
+
+        let dropped = Arc::new(AtomicBool::new(false));
+        let task_dropped = dropped.clone();
+        let (started_tx, started_rx) = futures::channel::oneshot::channel();
+        let handle = CompioExecutor.spawn(async move {
+            let _guard = DropGuard(task_dropped);
+            let _ = started_tx.send(());
+            futures::future::pending::<()>().await;
+        });
+
+        started_rx.await.unwrap();
+        handle.abort();
+
+        crate::task::yield_now().await;
+
+        assert!(dropped.load(Ordering::Acquire));
+        assert!(handle.is_finished());
         assert!(matches!(handle.await, Err(JoinError::Aborted)));
     }
 

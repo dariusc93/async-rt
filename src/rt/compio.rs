@@ -40,7 +40,7 @@ impl ExecutorTimeout for CompioExecutor {}
 /// [`CompioRuntimeExecutor::with_runtime`] with an existing runtime.
 #[derive(Clone, Debug)]
 pub struct CompioRuntimeExecutor {
-    _runtime: Runtime,
+    runtime: Runtime,
 }
 
 impl CompioRuntimeExecutor {
@@ -57,7 +57,7 @@ impl CompioRuntimeExecutor {
     /// Note that this executor schedules tasks but does not drive the runtime.
     /// The supplied runtime must be driven externally.
     pub fn with_runtime(runtime: Runtime) -> Self {
-        Self { _runtime: runtime }
+        Self { runtime }
     }
 
     /// Create an executor from the existing Runtime
@@ -77,7 +77,7 @@ impl Executor for CompioRuntimeExecutor {
         F: Future + Send + 'static,
         F::Output: Send + 'static,
     {
-        let handle = self._runtime.spawn(future);
+        let handle = self.runtime.spawn(future);
         let inner = InnerJoinHandle::compio(handle);
         JoinHandle { inner }
     }
@@ -89,7 +89,7 @@ impl ExecutorBlocking for CompioRuntimeExecutor {
         F: FnOnce() -> R + Send + 'static,
         R: Send + 'static,
     {
-        let handle = self._runtime.spawn_blocking(f);
+        let handle = self.runtime.spawn_blocking(f);
         let inner = InnerJoinHandle::compio(handle);
         JoinHandle { inner }
     }

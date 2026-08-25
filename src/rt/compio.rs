@@ -45,9 +45,6 @@ impl CompioRuntimeExecutor {
     }
 
     /// Create an executor with the supplied [`Runtime`].
-    ///
-    /// Note that the runtime remains alive until the final clone of this executor is
-    /// dropped.
     pub fn with_runtime(runtime: Runtime) -> Self {
         Self {
             _runtime: Some(runtime),

@@ -1,12 +1,13 @@
 use crate::error::TimeoutError;
 use crate::global::GlobalExecutor;
 use crate::{
-    AbortableJoinHandle, CommunicationTask, Executor, ExecutorBlocking, ExecutorTimeout,
-    JoinHandle, Scope, ScopeExecutor, UnboundedCommunicationTask,
+    AbortableJoinHandle, CommunicationTask, Executor, ExecutorBlockOn, ExecutorBlocking,
+    ExecutorTimeout, JoinHandle, Scope, ScopeExecutor, UnboundedCommunicationTask,
 };
 use futures::channel::mpsc::{Receiver, UnboundedReceiver};
+use std::sync::LazyLock;
 
-static EXECUTOR: GlobalExecutor = GlobalExecutor;
+static EXECUTOR: LazyLock<GlobalExecutor> = LazyLock::new(GlobalExecutor::default);
 
 /// Spawns a new asynchronous task in the background, returning a Future [`JoinHandle`] for it.
 pub fn spawn<F>(future: F) -> JoinHandle<F::Output>
@@ -262,6 +263,11 @@ where
     F: AsyncFnOnce(&ScopeExecutor<'static, GlobalExecutor>) -> T,
 {
     EXECUTOR.executor_scope(f)
+}
+
+/// Blocks the current thread until the provided future has completed.
+pub fn block_on<F: Future>(f: F) -> F::Output {
+    EXECUTOR.block_on(f)
 }
 
 #[cfg(not(all(feature = "tokio", not(target_arch = "wasm32"))))]

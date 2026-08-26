@@ -1,6 +1,3 @@
-use crate::{Executor, ExecutorBlockOn, ExecutorBlocking, ExecutorTimeout, JoinHandle};
-use std::future::Future;
-
 /// Executor that selects an available runtime backend at compile time.
 ///
 /// * On non-Wasm targets with the `tokio` or `compio` feature enabled, it uses
@@ -9,161 +6,28 @@ use std::future::Future;
 ///   feature disabled, it uses `ThreadPoolExecutor`.
 /// * On Wasm targets, it uses `WasmExecutor`, backed by
 ///   `wasm-bindgen-futures`.
-#[derive(Clone, Copy, Debug, PartialOrd, PartialEq, Eq)]
-pub struct GlobalExecutor;
+#[cfg(all(feature = "tokio", not(target_arch = "wasm32")))]
+pub type GlobalExecutor = crate::rt::tokio::TokioExecutor;
 
-impl Executor for GlobalExecutor {
-    #[cfg(all(feature = "tokio", not(target_arch = "wasm32")))]
-    fn spawn<F>(&self, future: F) -> JoinHandle<F::Output>
-    where
-        F: Future + Send + 'static,
-        F::Output: Send + 'static,
-    {
-        crate::rt::tokio::TokioExecutor.spawn(future)
-    }
+#[cfg(all(
+    feature = "compio",
+    not(any(feature = "tokio", target_arch = "wasm32"))
+))]
+pub type GlobalExecutor = crate::rt::compio::CompioExecutor;
 
-    #[cfg(all(
-        feature = "compio",
-        not(any(feature = "tokio", target_arch = "wasm32"))
-    ))]
-    fn spawn<F>(&self, future: F) -> JoinHandle<F::Output>
-    where
-        F: Future + Send + 'static,
-        F::Output: Send + 'static,
-    {
-        crate::rt::compio::CompioExecutor.spawn(future)
-    }
+#[cfg(all(
+    feature = "threadpool",
+    not(any(feature = "tokio", feature = "compio", target_arch = "wasm32"))
+))]
+pub type GlobalExecutor = crate::rt::threadpool::ThreadPoolExecutor;
 
-    #[cfg(all(
-        feature = "threadpool",
-        not(any(feature = "tokio", feature = "compio", target_arch = "wasm32"))
-    ))]
-    fn spawn<F>(&self, future: F) -> JoinHandle<F::Output>
-    where
-        F: Future + Send + 'static,
-        F::Output: Send + 'static,
-    {
-        crate::rt::threadpool::ThreadPoolExecutor.spawn(future)
-    }
+#[cfg(target_arch = "wasm32")]
+pub type GlobalExecutor = crate::rt::wasm::WasmExecutor;
 
-    #[cfg(target_arch = "wasm32")]
-    fn spawn<F>(&self, future: F) -> JoinHandle<F::Output>
-    where
-        F: Future + Send + 'static,
-        F::Output: Send + 'static,
-    {
-        crate::rt::wasm::WasmExecutor.spawn(future)
-    }
-
-    #[cfg(all(
-        not(feature = "threadpool"),
-        not(feature = "tokio"),
-        not(feature = "compio"),
-        not(target_arch = "wasm32")
-    ))]
-    fn spawn<F>(&self, _: F) -> JoinHandle<F::Output>
-    where
-        F: Future + Send + 'static,
-        F::Output: Send + 'static,
-    {
-        unreachable!()
-    }
-}
-
-impl ExecutorBlocking for GlobalExecutor {
-    #[cfg(all(feature = "tokio", not(target_arch = "wasm32")))]
-    fn spawn_blocking<F, R>(&self, f: F) -> JoinHandle<R>
-    where
-        F: FnOnce() -> R + Send + 'static,
-        R: Send + 'static,
-    {
-        crate::rt::tokio::TokioExecutor.spawn_blocking(f)
-    }
-
-    #[cfg(all(
-        feature = "compio",
-        not(any(feature = "tokio", target_arch = "wasm32"))
-    ))]
-    fn spawn_blocking<F, R>(&self, f: F) -> JoinHandle<R>
-    where
-        F: FnOnce() -> R + Send + 'static,
-        R: Send + 'static,
-    {
-        crate::rt::compio::CompioExecutor.spawn_blocking(f)
-    }
-
-    #[cfg(all(
-        feature = "threadpool",
-        not(any(feature = "tokio", feature = "compio", target_arch = "wasm32"))
-    ))]
-    fn spawn_blocking<F, R>(&self, f: F) -> JoinHandle<R>
-    where
-        F: FnOnce() -> R + Send + 'static,
-        R: Send + 'static,
-    {
-        crate::rt::threadpool::ThreadPoolExecutor.spawn_blocking(f)
-    }
-
-    #[cfg(target_arch = "wasm32")]
-    fn spawn_blocking<F, R>(&self, f: F) -> JoinHandle<R>
-    where
-        F: FnOnce() -> R + Send + 'static,
-        R: Send + 'static,
-    {
-        crate::rt::wasm::WasmExecutor.spawn_blocking(f)
-    }
-
-    #[cfg(all(
-        not(feature = "threadpool"),
-        not(feature = "tokio"),
-        not(feature = "compio"),
-        not(target_arch = "wasm32")
-    ))]
-    fn spawn_blocking<F, R>(&self, _: F) -> JoinHandle<R>
-    where
-        F: FnOnce() -> R + Send + 'static,
-        R: Send + 'static,
-    {
-        unimplemented!()
-    }
-}
-
-impl ExecutorTimeout for GlobalExecutor {}
-
-impl ExecutorBlockOn for GlobalExecutor {
-    #[cfg(all(feature = "tokio", not(target_arch = "wasm32")))]
-    fn block_on<F: Future>(&self, future: F) -> F::Output {
-        crate::rt::tokio::TokioExecutor.block_on(future)
-    }
-
-    #[cfg(all(
-        feature = "compio",
-        not(any(feature = "tokio", target_arch = "wasm32"))
-    ))]
-    fn block_on<F: Future>(&self, future: F) -> F::Output {
-        crate::rt::compio::CompioExecutor.block_on(f)
-    }
-
-    #[cfg(all(
-        feature = "threadpool",
-        not(any(feature = "tokio", feature = "compio", target_arch = "wasm32"))
-    ))]
-    fn block_on<F: Future>(&self, future: F) -> F::Output {
-        crate::rt::threadpool::ThreadPoolExecutor.block_on(f)
-    }
-
-    #[cfg(target_arch = "wasm32")]
-    fn block_on<F: Future>(&self, future: F) -> F::Output {
-        crate::rt::wasm::WasmExecutor.block_on(f)
-    }
-
-    #[cfg(all(
-        not(feature = "threadpool"),
-        not(feature = "tokio"),
-        not(feature = "compio"),
-        not(target_arch = "wasm32")
-    ))]
-    fn block_on<F: Future>(&self, _: F) -> F::Output {
-        unimplemented!()
-    }
-}
+#[cfg(all(
+    not(feature = "threadpool"),
+    not(feature = "tokio"),
+    not(feature = "compio"),
+    not(target_arch = "wasm32")
+))]
+pub type GlobalExecutor = crate::rt::dummy::DummyExecutor;

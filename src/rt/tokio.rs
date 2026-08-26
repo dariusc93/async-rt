@@ -6,7 +6,7 @@ use std::sync::Arc;
 use tokio::runtime::{Handle, Runtime};
 
 /// Tokio executor
-#[derive(Clone, Copy, Debug, PartialOrd, PartialEq, Eq)]
+#[derive(Default, Clone, Copy, Debug, PartialOrd, PartialEq, Eq)]
 pub struct TokioExecutor;
 
 impl Executor for TokioExecutor {

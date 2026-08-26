@@ -594,7 +594,7 @@ where
 /// use async_rt::Executor;
 /// use async_rt::global::GlobalExecutor;
 ///
-/// let executor = GlobalExecutor;
+/// let executor = GlobalExecutor::default();
 /// let total = executor
 ///     .executor_scope(async |s| {
 ///         let a = s.spawn(async { 1 + 2 });

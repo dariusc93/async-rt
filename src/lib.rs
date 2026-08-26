@@ -70,16 +70,6 @@ where
     }
 }
 
-#[cfg(all(
-    not(feature = "threadpool"),
-    not(feature = "tokio"),
-    not(feature = "compio"),
-    not(target_arch = "wasm32")
-))]
-compile_error!(
-    "At least one runtime (i.e `compio`, 'tokio', 'threadpool', 'wasm-bindgen-futures') must be enabled"
-);
-
 /// An owned permission to join on a task (await its termination).
 ///
 /// This can be seen as an equivalent to [`std::thread::JoinHandle`] but for [`Future`] tasks rather than a thread.
@@ -933,7 +923,7 @@ pub trait Executor {
     /// use async_rt::Executor;
     /// use async_rt::global::GlobalExecutor;
     ///
-    /// let executor = GlobalExecutor;
+    /// let executor = GlobalExecutor::default();
     /// let data = vec![1, 2, 3, 4];
     /// let sum = executor
     ///     .scope(async |s| {
@@ -967,7 +957,7 @@ pub trait Executor {
     /// use async_rt::Executor;
     /// use async_rt::global::GlobalExecutor;
     ///
-    /// let executor = GlobalExecutor;
+    /// let executor = GlobalExecutor::default();
     /// let total = executor
     ///     .executor_scope(async |s| {
     ///         let a = s.spawn(async { 1 + 2 });

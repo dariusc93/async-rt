@@ -5,7 +5,7 @@ use crate::{
 use futures::executor::ThreadPool;
 use futures::future::AbortHandle;
 use pollable_map::optional::Optional;
-use std::fmt::{Debug, Formatter};
+use std::fmt::Debug;
 use std::future::Future;
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, LazyLock};
@@ -16,14 +16,8 @@ static THREADPOOL_EXECUTOR: LazyLock<ThreadPool> = LazyLock::new(|| ThreadPool::
 ///
 /// Note that this executor will use a global threadpool rather than a per-instance threadpool.
 /// In other words, creating a new instance of `ThreadPoolExecutor` would continue to reuse the existing thread pool.
-#[derive(Clone, Copy, Default)]
+#[derive(Default, Clone, Copy, Debug, PartialOrd, PartialEq, Eq)]
 pub struct ThreadPoolExecutor;
-
-impl Debug for ThreadPoolExecutor {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("ThreadPoolExecutor").finish()
-    }
-}
 
 impl Executor for ThreadPoolExecutor {
     fn spawn<F>(&self, future: F) -> JoinHandle<F::Output>

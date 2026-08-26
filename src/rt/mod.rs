@@ -9,3 +9,5 @@ pub mod wasm;
 
 #[cfg(all(feature = "compio", not(target_arch = "wasm32")))]
 pub mod compio;
+
+pub mod dummy;

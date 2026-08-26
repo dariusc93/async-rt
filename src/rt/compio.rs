@@ -4,7 +4,7 @@ use crate::{
 use compio::runtime::Runtime;
 
 /// Compio executor
-#[derive(Clone, Copy, Debug, PartialOrd, PartialEq, Eq)]
+#[derive(Default, Clone, Copy, Debug, PartialOrd, PartialEq, Eq)]
 pub struct CompioExecutor;
 
 impl Executor for CompioExecutor {

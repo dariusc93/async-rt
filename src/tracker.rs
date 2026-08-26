@@ -1,4 +1,4 @@
-use crate::{Executor, ExecutorBlocking, ExecutorTimeout, JoinHandle};
+use crate::{Executor, ExecutorBlockOn, ExecutorBlocking, ExecutorTimeout, JoinHandle};
 use std::fmt::Debug;
 use std::future::Future;
 use std::pin::Pin;
@@ -110,6 +110,12 @@ impl<E: ExecutorBlocking> ExecutorBlocking for TrackerExecutor<E> {
 }
 
 impl<E: ExecutorTimeout> ExecutorTimeout for TrackerExecutor<E> {}
+
+impl<E: ExecutorBlockOn> ExecutorBlockOn for TrackerExecutor<E> {
+    fn block_on<F: Future>(&self, future: F) -> F::Output {
+        self.executor.block_on(future)
+    }
+}
 
 #[cfg(test)]
 mod tests {

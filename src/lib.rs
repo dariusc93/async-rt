@@ -987,6 +987,21 @@ pub trait ExecutorBlocking: Executor {
     where
         F: FnOnce() -> R + Send + 'static,
         R: Send + 'static;
+
+    /// Spawns a thread in the background, returning an abortable handle that will cancel it
+    /// once the handle is dropped.
+    ///
+    /// Note: This function is used if the task is expected to run until the handle is dropped.
+    /// It is recommended to use [`Executor::spawn_blocking`]. Additionally, there is no guarantee
+    /// that the thread will cancel or abort.
+    fn spawn_blocking_abortable<F, R>(&self, f: F) -> AbortableJoinHandle<R>
+    where
+        F: FnOnce() -> R + Send + 'static,
+        R: Send + 'static,
+    {
+        let handle = self.spawn_blocking(f);
+        handle.into()
+    }
 }
 
 pub trait ExecutorTimeout: Executor {

@@ -348,8 +348,8 @@ impl<'scope, 'env> Scope<'scope, 'env> {
         f: F,
     ) -> ScopedJoinHandle<Result<F::Output, TimeoutError>>
     where
-        F: Future + Send + 'static,
-        F::Output: Send + 'static,
+        F: Future + Send + 'scope,
+        F::Output: Send + 'scope,
     {
         self.spawn(Timeout::from_future(f, duration).map_err(|_| TimeoutError))
     }
@@ -365,8 +365,8 @@ impl<'scope, 'env> Scope<'scope, 'env> {
         f: F,
     ) -> AbortableJoinHandle<Result<F::Output, TimeoutError>>
     where
-        F: Future + Send + 'static,
-        F::Output: Send + 'static,
+        F: Future + Send + 'scope,
+        F::Output: Send + 'scope,
     {
         self.spawn_abortable(Timeout::from_future(f, duration).map_err(|_| TimeoutError))
     }

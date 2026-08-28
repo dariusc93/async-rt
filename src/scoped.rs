@@ -13,8 +13,9 @@
 //! borrow is released before the stack frame goes away.
 
 use crate::{
-    AbortableJoinHandle, CommunicationTask, CompletionGuard, Executor, InnerJoinHandle, JoinHandle,
-    TimeoutError, UnboundedCommunicationTask, abortable_result, error::JoinError,
+    AbortableJoinHandle, CommunicationTask, CompletionGuard, Executor, ExecutorBlocking,
+    ExecutorTimeout, InnerJoinHandle, JoinHandle, TimeoutError, UnboundedCommunicationTask,
+    abortable_result, error::JoinError,
 };
 use core::future::{Future, poll_fn};
 use core::marker::PhantomData;
@@ -537,6 +538,42 @@ impl<'scope, E> ScopeExecutor<'scope, E> {
     }
 }
 
+impl<E> ScopeExecutor<'_, E>
+where
+    E: Executor,
+{
+    fn spawn_tracked<F, T>(&self, future: F) -> JoinHandle<T>
+    where
+        F: Future<Output = Result<T, JoinError>> + Send + 'static,
+        T: Send + 'static,
+    {
+        let (abort_handle, abort_registration) = AbortHandle::new_pair();
+        let (tx, rx) = oneshot::channel();
+        let finished = Arc::new(AtomicBool::new(false));
+        let completion = CompletionGuard::new(finished.clone());
+        let wrapped = async move {
+            let _completion = completion;
+            let result = abortable_result(future, abort_registration)
+                .await
+                .and_then(|result| result);
+            let _ = tx.send(result);
+        };
+
+        // Track an abort-on-drop handle so cancellation remains effective even
+        // after the handles are drained from `ScopeExecutor` for joining.
+        let task_handle = self.inner.spawn_abortable(wrapped);
+        self.task_handles.lock().push(task_handle);
+
+        JoinHandle {
+            inner: InnerJoinHandle::CustomHandle {
+                inner: Optional::new(rx),
+                handle: abort_handle,
+                finished,
+            },
+        }
+    }
+}
+
 impl<E> Drop for ScopeExecutor<'_, E> {
     fn drop(&mut self) {
         self.abort_all();
@@ -552,31 +589,28 @@ where
         F: Future + Send + 'static,
         F::Output: Send + 'static,
     {
-        let (abort_handle, abort_registration) = AbortHandle::new_pair();
-        let abortable = abortable_result(future, abort_registration);
-        let (tx, rx) = oneshot::channel();
-        let finished = Arc::new(AtomicBool::new(false));
-        let completion = CompletionGuard::new(finished.clone());
-        let wrapped = async move {
-            let _completion = completion;
-            let val = abortable.await;
-            let _ = tx.send(val);
-        };
-
-        // Track an abort-on-drop handle so cancellation remains effective even
-        // after the handles are drained from `ScopeExecutor` for joining.
-        let task_handle: AbortableJoinHandle<()> = self.inner.spawn(wrapped).into();
-        self.task_handles.lock().push(task_handle);
-
-        JoinHandle {
-            inner: InnerJoinHandle::CustomHandle {
-                inner: Optional::new(rx),
-                handle: abort_handle,
-                finished,
-            },
-        }
+        self.spawn_tracked(async move { Ok(future.await) })
     }
 }
+
+impl<E> ExecutorBlocking for ScopeExecutor<'_, E>
+where
+    E: ExecutorBlocking,
+{
+    fn spawn_blocking<F, R>(&self, f: F) -> JoinHandle<R>
+    where
+        F: FnOnce() -> R + Send + 'static,
+        R: Send + 'static,
+    {
+        let blocking_handle = self.inner.spawn_blocking_abortable(f);
+        // Note that the monitor owns the blocking handle, so aborting the monitor drops its
+        // abort-on-drop handle, which prevents queued work from starting when
+        // the backend supports that. Work already running may continue.
+        self.spawn_tracked(blocking_handle)
+    }
+}
+
+impl<E> ExecutorTimeout for ScopeExecutor<'_, E> where E: Executor {}
 
 /// Run an async closure with a scoped [`Executor`] wrapper.
 ///
@@ -841,6 +875,101 @@ mod tests {
             })
             .await;
         assert_eq!(total, 10);
+    }
+
+    #[cfg(feature = "tokio")]
+    #[tokio::test]
+    async fn executor_scope_supports_timeouts() {
+        use crate::rt::tokio::TokioExecutor;
+        use futures::future::pending;
+
+        let executor = TokioExecutor;
+        executor
+            .executor_scope(async |s| {
+                let timeout = s.spawn_timeout(Duration::from_millis(10), pending::<()>());
+                assert!(matches!(timeout.await, Ok(Err(TimeoutError))));
+
+                let abortable_timeout =
+                    s.spawn_abortable_timeout(Duration::from_millis(10), pending::<()>());
+                assert!(matches!(abortable_timeout.await, Ok(Err(TimeoutError))));
+            })
+            .await;
+    }
+
+    #[cfg(feature = "tokio")]
+    #[tokio::test]
+    async fn executor_scope_supports_blocking_tasks() {
+        use crate::rt::tokio::TokioExecutor;
+
+        let executor = TokioExecutor;
+        executor
+            .executor_scope(async |s| {
+                assert_eq!(s.spawn_blocking(|| 42).await.unwrap(), 42);
+
+                let panicked = s
+                    .spawn_blocking(|| -> () { panic!("deliberate blocking task panic") })
+                    .await;
+                assert!(matches!(panicked, Err(JoinError::Panicked)));
+            })
+            .await;
+    }
+
+    #[cfg(feature = "tokio")]
+    #[tokio::test]
+    async fn executor_scope_drains_unawaited_blocking_tasks() {
+        use crate::rt::tokio::TokioExecutor;
+        use std::sync::Arc;
+        use std::sync::atomic::{AtomicBool, Ordering};
+
+        let executor = TokioExecutor;
+        let completed = Arc::new(AtomicBool::new(false));
+        let task_completed = completed.clone();
+
+        executor
+            .executor_scope(async move |s| {
+                let _handle = s.spawn_blocking(move || {
+                    std::thread::sleep(Duration::from_millis(25));
+                    task_completed.store(true, Ordering::SeqCst);
+                });
+            })
+            .await;
+
+        assert!(completed.load(Ordering::SeqCst));
+    }
+
+    #[cfg(feature = "tokio")]
+    #[tokio::test(flavor = "current_thread")]
+    async fn executor_scope_blocking_abort_is_reported() {
+        use crate::rt::tokio::TokioExecutor;
+        use futures::future::{Either, select};
+
+        let executor = TokioExecutor;
+        executor
+            .executor_scope(async |s| {
+                let (started_tx, started_rx) = oneshot::channel();
+                let (release_tx, release_rx) = std::sync::mpsc::channel();
+                let handle = s.spawn_blocking(move || {
+                    let _ = started_tx.send(());
+                    let _ = release_rx.recv();
+                });
+
+                started_rx.await.unwrap();
+                handle.abort();
+
+                let handle = Box::pin(handle);
+                let result = match select(handle, Delay::new(Duration::from_secs(1))).await {
+                    Either::Left((result, _)) => result,
+                    Either::Right((_, handle)) => {
+                        release_tx.send(()).unwrap();
+                        let _ = handle.await;
+                        panic!("aborting the blocking handle did not cancel its monitor");
+                    }
+                };
+
+                release_tx.send(()).unwrap();
+                assert!(matches!(result, Err(JoinError::Aborted)));
+            })
+            .await;
     }
 
     #[cfg(feature = "tokio")]

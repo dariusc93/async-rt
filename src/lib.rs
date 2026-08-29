@@ -20,21 +20,38 @@ pub use crate::scoped::{Scope, ScopeExecutor, ScopedJoinHandle};
 #[cfg(all(
     feature = "macros",
     feature = "compio",
-    not(any(feature = "tokio", target_arch = "wasm32"))
+    not(any(feature = "tokio", feature = "smol", target_arch = "wasm32"))
 ))]
 #[doc(inline)]
 pub use async_rt_macros::{main_compio as main, test_compio as test};
 #[cfg(all(
     feature = "macros",
-    not(any(feature = "tokio", feature = "compio", feature = "threadpool")),
+    not(any(
+        feature = "tokio",
+        feature = "smol",
+        feature = "compio",
+        feature = "threadpool"
+    )),
     not(target_arch = "wasm32")
 ))]
 #[doc(inline)]
 pub use async_rt_macros::{main_fail as main, test_fail as test};
 #[cfg(all(
     feature = "macros",
+    feature = "smol",
+    not(any(feature = "tokio", target_arch = "wasm32"))
+))]
+#[doc(inline)]
+pub use async_rt_macros::{main_smol as main, test_smol as test};
+#[cfg(all(
+    feature = "macros",
     feature = "threadpool",
-    not(any(feature = "tokio", feature = "compio", target_arch = "wasm32"))
+    not(any(
+        feature = "tokio",
+        feature = "smol",
+        feature = "compio",
+        target_arch = "wasm32"
+    ))
 ))]
 #[doc(inline)]
 pub use async_rt_macros::{main_threadpool as main, test_threadpool as test};
@@ -134,6 +151,8 @@ enum InnerJoinHandle<T> {
         abort_requested: AtomicBool,
         start_cancel: StartCompioCancel<T>,
     },
+    #[cfg(all(feature = "smol", not(target_arch = "wasm32")))]
+    SmolHandle { handle: SmolTask<T> },
     #[allow(dead_code)]
     CustomHandle {
         inner: Optional<futures::channel::oneshot::Receiver<Result<T, JoinError>>>,
@@ -142,6 +161,54 @@ enum InnerJoinHandle<T> {
     },
     #[default]
     Empty,
+}
+
+#[cfg(all(feature = "smol", not(target_arch = "wasm32")))]
+struct SmolTask<T> {
+    inner: Optional<::async_task::FallibleTask<Result<T, JoinError>>>,
+    abort_handle: AbortHandle,
+}
+
+#[cfg(all(feature = "smol", not(target_arch = "wasm32")))]
+impl<T> SmolTask<T> {
+    fn new(task: ::smol::Task<Result<T, JoinError>>, abort_handle: AbortHandle) -> Self {
+        Self {
+            inner: Optional::new(task.fallible()),
+            abort_handle,
+        }
+    }
+
+    fn abort(&self) {
+        self.abort_handle.abort();
+    }
+
+    fn is_finished(&self) -> bool {
+        self.inner
+            .as_ref()
+            .map(|task| task.is_finished())
+            .unwrap_or(true)
+    }
+}
+
+#[cfg(all(feature = "smol", not(target_arch = "wasm32")))]
+impl<T> Drop for SmolTask<T> {
+    fn drop(&mut self) {
+        if let Some(task) = self.inner.take() {
+            task.detach();
+        }
+    }
+}
+
+#[cfg(all(feature = "smol", not(target_arch = "wasm32")))]
+impl<T> Future for SmolTask<T> {
+    type Output = Result<T, JoinError>;
+
+    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        match futures::ready!(Pin::new(&mut self.inner).poll(cx)) {
+            Some(result) => Poll::Ready(result),
+            None => Poll::Ready(Err(JoinError::Cancelled)),
+        }
+    }
 }
 
 #[cfg(all(feature = "compio", not(target_arch = "wasm32")))]
@@ -312,6 +379,13 @@ impl<T> InnerJoinHandle<T> {
             start_cancel: start_compio_cancel::<T>,
         }
     }
+
+    #[cfg(all(feature = "smol", not(target_arch = "wasm32")))]
+    fn smol(handle: ::smol::Task<Result<T, JoinError>>, abort_handle: AbortHandle) -> Self {
+        Self::SmolHandle {
+            handle: SmolTask::new(handle, abort_handle),
+        }
+    }
 }
 
 impl<T> JoinHandle<T> {
@@ -349,6 +423,8 @@ impl<T> JoinHandle<T> {
             } => {
                 start_cancel(handle, abort_requested);
             }
+            #[cfg(all(feature = "smol", not(target_arch = "wasm32")))]
+            InnerJoinHandle::SmolHandle { handle } => handle.abort(),
             InnerJoinHandle::CustomHandle { handle, .. } => handle.abort(),
             InnerJoinHandle::Empty => {}
         }
@@ -366,6 +442,8 @@ impl<T> JoinHandle<T> {
             }
             #[cfg(all(feature = "compio", not(target_arch = "wasm32")))]
             InnerJoinHandle::CompioHandle { handle, .. } => handle.lock().is_finished(),
+            #[cfg(all(feature = "smol", not(target_arch = "wasm32")))]
+            InnerJoinHandle::SmolHandle { handle } => handle.is_finished(),
             InnerJoinHandle::CustomHandle {
                 inner, finished, ..
             } => finished.load(Ordering::Acquire) || inner.is_none(),
@@ -440,6 +518,8 @@ impl<T> Future for JoinHandle<T> {
                     Err(e) => Poll::Ready(Err(e)),
                 }
             }
+            #[cfg(all(feature = "smol", not(target_arch = "wasm32")))]
+            InnerJoinHandle::SmolHandle { handle } => Pin::new(handle).poll(cx),
             InnerJoinHandle::CustomHandle { inner, .. } => {
                 let fut = futures::ready!(Pin::new(inner).poll(cx));
                 match fut {
@@ -1022,7 +1102,7 @@ pub trait ExecutorBlocking: Executor {
     /// once the handle is dropped.
     ///
     /// Note: This function is used if the task is expected to run until the handle is dropped.
-    /// It is recommended to use [`Executor::spawn_blocking`]. Additionally, there is no guarantee
+    /// It is recommended to use [`ExecutorBlocking::spawn_blocking`]. Additionally, there is no guarantee
     /// that the thread will cancel or abort.
     fn spawn_blocking_abortable<F, R>(&self, f: F) -> AbortableJoinHandle<R>
     where

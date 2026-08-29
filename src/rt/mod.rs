@@ -11,3 +11,6 @@ pub mod wasm;
 pub mod compio;
 
 pub mod dummy;
+
+#[cfg(all(feature = "smol", not(target_arch = "wasm32")))]
+pub mod smol;

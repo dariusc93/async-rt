@@ -25,6 +25,7 @@ enum Executor {
     #[default]
     Global,
     Tokio,
+    Smol,
     Compio,
     ThreadPool,
 }
@@ -34,11 +35,12 @@ impl Executor {
         match value {
             "global" => Ok(Self::Global),
             "tokio" => Ok(Self::Tokio),
+            "smol" => Ok(Self::Smol),
             "compio" => Ok(Self::Compio),
             "threadpool" | "thread_pool" => Ok(Self::ThreadPool),
             _ => Err(Error::new(
                 span,
-                "unknown executor. expected `global`, `tokio`, `compio`, or `threadpool`",
+                "unknown executor. expected `global`, `tokio`, `smol`, `compio`, or `threadpool`",
             )),
         }
     }
@@ -64,6 +66,9 @@ impl Executor {
             Self::Tokio => quote! {
                 #runtime_crate::rt::tokio::TokioRuntimeExecutor::with_multi_thread()
                     .expect("async-rt failed to create the Tokio runtime")
+            },
+            Self::Smol => quote! {
+                #runtime_crate::rt::smol::SmolRuntimeExecutor::new()
             },
             Self::Compio => quote! {
                 #runtime_crate::rt::compio::CompioRuntimeExecutor::new()
@@ -180,6 +185,7 @@ macro_rules! entry_points {
 }
 
 entry_points!(main_tokio, test_tokio, Tokio);
+entry_points!(main_smol, test_smol, Smol);
 entry_points!(main_compio, test_compio, Compio);
 entry_points!(main_threadpool, test_threadpool, ThreadPool);
 
@@ -206,7 +212,7 @@ macro_rules! failure_entry_points {
 failure_entry_points!(
     main_fail,
     test_fail,
-    "async-rt's `main` and `test` macros require the `tokio`, `compio`, or `threadpool` feature"
+    "async-rt's `main` and `test` macros require the `tokio`, `smol`, `compio`, or `threadpool` feature"
 );
 failure_entry_points!(
     main_wasm_fail,

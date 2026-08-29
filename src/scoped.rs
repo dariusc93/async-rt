@@ -341,7 +341,7 @@ impl<'scope, 'env> Scope<'scope, 'env> {
     ///
     /// If the future does not finish before `duration` elapses, it is dropped and the task
     /// completes with [`TimeoutError`]. This is the scoped analogue of
-    /// [`ExecutorTimeout::spawn_timeout`](crate::ExecutorTimeout::spawn_timeout).
+    /// [`ExecutorTimeout::spawn_timeout`].
     pub fn spawn_timeout<F>(
         &'scope self,
         duration: std::time::Duration,

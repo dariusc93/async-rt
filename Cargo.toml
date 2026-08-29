@@ -14,13 +14,18 @@ description = """
 A small library designed to utilize async executors through an common API while extending features.
 """
 
+[workspace]
+members = ["async-rt-macros", "examples/default-runtime"]
+
 [features]
-default = ["tokio"]
+default = ["tokio", "macros"]
+macros = ["dep:async-rt-macros"]
 threadpool = ["futures/thread-pool"]
 tokio = ["dep:tokio"]
 compio = ["dep:compio"]
 
 [dependencies]
+async-rt-macros = { version = "0.1.0", path = "async-rt-macros", optional = true }
 futures = { version = "0.3.31", default-features = false, features = ["std", "alloc", "async-await"] }
 pollable-map = "0.2.0"
 futures-timeout = "0.2"

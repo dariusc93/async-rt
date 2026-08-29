@@ -17,6 +17,33 @@ use std::sync::atomic::{AtomicBool, Ordering};
 pub use crate::error::JoinError;
 pub use crate::error::TimeoutError;
 pub use crate::scoped::{Scope, ScopeExecutor, ScopedJoinHandle};
+#[cfg(all(
+    feature = "macros",
+    feature = "compio",
+    not(any(feature = "tokio", target_arch = "wasm32"))
+))]
+#[doc(inline)]
+pub use async_rt_macros::{main_compio as main, test_compio as test};
+#[cfg(all(
+    feature = "macros",
+    not(any(feature = "tokio", feature = "compio", feature = "threadpool")),
+    not(target_arch = "wasm32")
+))]
+#[doc(inline)]
+pub use async_rt_macros::{main_fail as main, test_fail as test};
+#[cfg(all(
+    feature = "macros",
+    feature = "threadpool",
+    not(any(feature = "tokio", feature = "compio", target_arch = "wasm32"))
+))]
+#[doc(inline)]
+pub use async_rt_macros::{main_threadpool as main, test_threadpool as test};
+#[cfg(all(feature = "macros", feature = "tokio", not(target_arch = "wasm32")))]
+#[doc(inline)]
+pub use async_rt_macros::{main_tokio as main, test_tokio as test};
+#[cfg(all(feature = "macros", target_arch = "wasm32"))]
+#[doc(inline)]
+pub use async_rt_macros::{main_wasm_fail as main, test_wasm_fail as test};
 use futures::channel::mpsc::{Receiver, UnboundedReceiver};
 use futures::future::{AbortHandle, AbortRegistration, Abortable};
 use futures::task::AtomicWaker;
@@ -29,6 +56,9 @@ use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll};
+
+#[cfg(feature = "macros")]
+extern crate self as async_rt;
 
 #[cfg(all(feature = "compio", not(target_arch = "wasm32")))]
 type BoxCancelFuture<T> = Pin<Box<dyn Future<Output = Option<T>> + Send + 'static>>;

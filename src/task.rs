@@ -9,6 +9,11 @@ use std::sync::LazyLock;
 
 static EXECUTOR: LazyLock<GlobalExecutor> = LazyLock::new(GlobalExecutor::default);
 
+/// Returns an optional runtime name of the executor.
+pub fn runtime_type() -> Option<&'static str> {
+    EXECUTOR.runtime_type()
+}
+
 /// Spawns a new asynchronous task in the background, returning a Future [`JoinHandle`] for it.
 pub fn spawn<F>(future: F) -> JoinHandle<F::Output>
 where

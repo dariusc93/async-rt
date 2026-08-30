@@ -20,6 +20,10 @@ static THREADPOOL_EXECUTOR: LazyLock<ThreadPool> = LazyLock::new(|| ThreadPool::
 pub struct ThreadPoolExecutor;
 
 impl Executor for ThreadPoolExecutor {
+    fn runtime_type(&self) -> Option<&'static str> {
+        Some("threadpool")
+    }
+
     fn spawn<F>(&self, future: F) -> JoinHandle<F::Output>
     where
         F: Future + Send + 'static,

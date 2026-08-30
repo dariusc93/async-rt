@@ -10,6 +10,10 @@ use tokio::runtime::{Handle, Runtime};
 pub struct TokioExecutor;
 
 impl Executor for TokioExecutor {
+    fn runtime_type(&self) -> Option<&'static str> {
+        Some("tokio")
+    }
+
     fn spawn<F>(&self, future: F) -> JoinHandle<F::Output>
     where
         F: Future + Send + 'static,
@@ -103,6 +107,10 @@ impl TokioRuntimeExecutor {
 }
 
 impl Executor for TokioRuntimeExecutor {
+    fn runtime_type(&self) -> Option<&'static str> {
+        Some("tokio")
+    }
+
     fn spawn<F>(&self, future: F) -> JoinHandle<F::Output>
     where
         F: Future + Send + 'static,

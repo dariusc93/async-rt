@@ -8,6 +8,10 @@ use compio::runtime::Runtime;
 pub struct CompioExecutor;
 
 impl Executor for CompioExecutor {
+    fn runtime_type(&self) -> Option<&'static str> {
+        Some("compio")
+    }
+
     fn spawn<F>(&self, future: F) -> JoinHandle<F::Output>
     where
         F: Future + Send + 'static,
@@ -79,6 +83,10 @@ impl CompioRuntimeExecutor {
 }
 
 impl Executor for CompioRuntimeExecutor {
+    fn runtime_type(&self) -> Option<&'static str> {
+        Some("compio")
+    }
+
     fn spawn<F>(&self, future: F) -> JoinHandle<F::Output>
     where
         F: Future + Send + 'static,

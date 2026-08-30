@@ -11,6 +11,13 @@ where
     L: Executor,
     R: Executor,
 {
+    fn runtime_type(&self) -> Option<&'static str> {
+        match self {
+            Either::Left(l) => l.runtime_type(),
+            Either::Right(r) => r.runtime_type(),
+        }
+    }
+
     fn spawn<F>(&self, future: F) -> JoinHandle<F::Output>
     where
         F: Future + Send + 'static,

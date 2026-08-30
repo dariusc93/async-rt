@@ -7,6 +7,10 @@ use crate::{Executor, ExecutorBlockOn, ExecutorBlocking, ExecutorTimeout, JoinHa
 pub struct DummyExecutor;
 
 impl Executor for DummyExecutor {
+    fn runtime_type(&self) -> Option<&'static str> {
+        Some("dummy")
+    }
+
     fn spawn<F>(&self, _: F) -> JoinHandle<F::Output>
     where
         F: Future + Send + 'static,

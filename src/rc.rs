@@ -10,6 +10,9 @@ impl<E> Executor for Rc<E>
 where
     E: Executor,
 {
+    fn runtime_type(&self) -> Option<&'static str> {
+        (**self).runtime_type()
+    }
     fn spawn<F>(&self, future: F) -> JoinHandle<F::Output>
     where
         F: Future + Send + 'static,

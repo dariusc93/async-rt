@@ -11,6 +11,10 @@ use std::sync::Arc;
 pub struct SmolExecutor;
 
 impl Executor for SmolExecutor {
+    fn runtime_type(&self) -> Option<&'static str> {
+        Some("smol")
+    }
+
     fn spawn<F>(&self, future: F) -> JoinHandle<F::Output>
     where
         F: Future + Send + 'static,
@@ -70,6 +74,10 @@ impl Default for SmolRuntimeExecutor<'_> {
 }
 
 impl<'a> Executor for SmolRuntimeExecutor<'a> {
+    fn runtime_type(&self) -> Option<&'static str> {
+        Some("smol")
+    }
+
     fn spawn<F>(&self, future: F) -> JoinHandle<F::Output>
     where
         F: Future + Send + 'static,

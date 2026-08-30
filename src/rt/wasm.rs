@@ -13,6 +13,10 @@ use std::sync::atomic::AtomicBool;
 pub struct WasmExecutor;
 
 impl Executor for WasmExecutor {
+    fn runtime_type(&self) -> Option<&'static str> {
+        Some("wasm")
+    }
+
     fn spawn<F>(&self, future: F) -> JoinHandle<F::Output>
     where
         F: Future + Send + 'static,

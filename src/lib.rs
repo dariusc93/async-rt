@@ -746,6 +746,11 @@ impl<T> UnboundedCommunicationTask<T> {
 }
 
 pub trait Executor {
+    /// Returns an optional runtime name of the executor.
+    fn runtime_type(&self) -> Option<&'static str> {
+        None
+    }
+
     /// Spawns a new asynchronous task in the background, returning a Future [`JoinHandle`] for it.
     fn spawn<F>(&self, future: F) -> JoinHandle<F::Output>
     where

@@ -67,6 +67,10 @@ impl<F> Drop for FutureCounter<F> {
 }
 
 impl<E: Executor> Executor for TrackerExecutor<E> {
+    fn runtime_type(&self) -> Option<&'static str> {
+        self.executor.runtime_type()
+    }
+
     fn spawn<F>(&self, future: F) -> JoinHandle<F::Output>
     where
         F: Future + Send + 'static,

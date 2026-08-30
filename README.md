@@ -6,10 +6,40 @@ async-rt is a small library designed to utilize async executors (i.e Tokio) thro
 for abortable task, tasks that receive messages and being able to switch between multiple async runtimes at compile time if specific
 conditions are met (i.e tokio or compio if the feature is enabled and its a non-wasm32 arch, while wasm32-bindgen-futures is used if the arch is wasm32).
 
+## Runtime attributes
+
+The `macros` feature provides `main` and `test` attributes. It is enabled by default.
+
+```rust
+#[async_rt::main]
+async fn main() {
+    let task = async_rt::task::spawn(async { 42 });
+    assert_eq!(task.await.unwrap(), 42);
+}
+```
+
+The default executor follows the same feature precedence as `GlobalExecutor`. A runtime can also be selected explicitly
+
+```rust,no_run
+#[async_rt::main(executor = "compio")]
+async fn main() {
+    use async_rt::Executor;
+
+    let task = async_rt::rt::compio::CompioExecutor.spawn(async { 42 });
+    assert_eq!(task.await.unwrap(), 42);
+}
+```
+
+Supported selections are `"global"`, `"tokio"`, `"smol"`, `"compio"`, and `"threadpool"`.
+Explicit selection controls the runtime driving the annotated function as it does not
+change the compile-time `GlobalExecutor`. This distinction matters when more than one
+executor feature is enabled. Note that these attributes do not currently support 
+wasm32 targets.
+
 ## MSRV
 
 The minimum supported rust version is 1.85, which can be changed in the future. There is no guarantee that this library will work on older versions of rust.
 
 ## License
 
-This crate is licensed under either Apache 2.0 or MIT. 
+This crate is licensed under either Apache 2.0 or MIT.

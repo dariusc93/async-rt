@@ -474,6 +474,32 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn delay_task() {
+        let executor = TokioExecutor;
+        let duration = std::time::Duration::from_millis(20);
+        let started = std::time::Instant::now();
+
+        let task = executor.spawn_delay(duration, async { "Hello" });
+        let result = task.await.unwrap();
+
+        assert!(started.elapsed() >= duration);
+        assert_eq!(result, "Hello");
+    }
+
+    #[tokio::test]
+    async fn abortable_delay_task() {
+        let executor = TokioExecutor;
+        let (tx, rx) = futures::channel::oneshot::channel();
+        let task = executor.spawn_abortable_delay(std::time::Duration::from_secs(5), async move {
+            let _ = tx.send(());
+        });
+
+        drop(task);
+
+        assert!(rx.await.is_err());
+    }
+
+    #[tokio::test]
     async fn race_before_timeout_task() {
         let executor = TokioExecutor;
 

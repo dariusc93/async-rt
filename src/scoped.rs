@@ -354,6 +354,22 @@ impl<'scope, 'env> Scope<'scope, 'env> {
         self.spawn(Timeout::from_future(f, duration).map_err(|_| TimeoutError))
     }
 
+    /// Spawns a task after waiting for a duration before the task is polled.
+    pub fn spawn_delay<F>(
+        &'scope self,
+        duration: std::time::Duration,
+        f: F,
+    ) -> ScopedJoinHandle<F::Output>
+    where
+        F: Future + Send + 'scope,
+        F::Output: Send + 'scope,
+    {
+        self.spawn(async move {
+            let _ = Timeout::from_future(futures::future::pending::<()>(), duration).await;
+            f.await
+        })
+    }
+
     /// Spawn a scoped task that must complete within `duration`, returning an
     /// [`AbortableJoinHandle`] that cancels the task once all references to it are dropped.
     ///
@@ -369,6 +385,22 @@ impl<'scope, 'env> Scope<'scope, 'env> {
         F::Output: Send + 'scope,
     {
         self.spawn_abortable(Timeout::from_future(f, duration).map_err(|_| TimeoutError))
+    }
+
+    /// Spawns a task after waiting for a duration before the task is polled.
+    pub fn spawn_abortable_delay<F>(
+        &'scope self,
+        duration: std::time::Duration,
+        f: F,
+    ) -> AbortableJoinHandle<F::Output>
+    where
+        F: Future + Send + 'scope,
+        F::Output: Send + 'scope,
+    {
+        self.spawn_abortable(async move {
+            let _ = Timeout::from_future(futures::future::pending::<()>(), duration).await;
+            f.await
+        })
     }
 }
 

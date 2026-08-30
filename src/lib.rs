@@ -1132,6 +1132,18 @@ pub trait ExecutorTimeout: Executor {
         self.spawn(Timeout::from_future(f, duration).map_err(|_| TimeoutError))
     }
 
+    /// Spawns a task after waiting for a duration before the task is polled.
+    fn spawn_delay<F>(&self, duration: std::time::Duration, f: F) -> JoinHandle<F::Output>
+    where
+        F: Future + Send + 'static,
+        F::Output: Send + 'static,
+    {
+        self.spawn(async move {
+            let _ = Timeout::from_future(futures::future::pending::<()>(), duration).await;
+            f.await
+        })
+    }
+
     /// Spawns a new asynchronous task in the background that must complete within `duration`,
     /// returning an abortable handle that will cancel the task once the handle is dropped.
     ///
@@ -1147,6 +1159,22 @@ pub trait ExecutorTimeout: Executor {
         F::Output: Send + 'static,
     {
         self.spawn_abortable(Timeout::from_future(f, duration).map_err(|_| TimeoutError))
+    }
+
+    /// Spawns an abortable task after waiting for `duration` before the task is polled.
+    fn spawn_abortable_delay<F>(
+        &self,
+        duration: std::time::Duration,
+        f: F,
+    ) -> AbortableJoinHandle<F::Output>
+    where
+        F: Future + Send + 'static,
+        F::Output: Send + 'static,
+    {
+        self.spawn_abortable(async move {
+            let _ = Timeout::from_future(futures::future::pending::<()>(), duration).await;
+            f.await
+        })
     }
 }
 

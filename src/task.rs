@@ -53,6 +53,15 @@ where
     EXECUTOR.spawn_timeout(duration, future)
 }
 
+/// Spawns a task after waiting for a duration before the task is polled.
+pub fn spawn_delay<F>(duration: std::time::Duration, future: F) -> JoinHandle<F::Output>
+where
+    F: Future + Send + 'static,
+    F::Output: Send + 'static,
+{
+    EXECUTOR.spawn_delay(duration, future)
+}
+
 /// Spawns a new asynchronous task, returning an abortable handle, that must complete within
 /// `duration`.
 ///
@@ -66,6 +75,18 @@ where
     F::Output: Send + 'static,
 {
     EXECUTOR.spawn_abortable_timeout(duration, future)
+}
+
+/// Spawns a task after waiting for a duration before the task is polled.
+pub fn spawn_abortable_delay<F>(
+    duration: std::time::Duration,
+    future: F,
+) -> AbortableJoinHandle<F::Output>
+where
+    F: Future + Send + 'static,
+    F::Output: Send + 'static,
+{
+    EXECUTOR.spawn_abortable_delay(duration, future)
 }
 
 /// Spawns a new asynchronous task in the background without a handle.

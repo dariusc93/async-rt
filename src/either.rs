@@ -67,6 +67,17 @@ where
         }
     }
 
+    fn spawn_delay<F>(&self, duration: Duration, f: F) -> JoinHandle<F::Output>
+    where
+        F: Future + Send + 'static,
+        F::Output: Send + 'static,
+    {
+        match self {
+            Either::Left(l) => l.spawn_delay(duration, f),
+            Either::Right(r) => r.spawn_delay(duration, f),
+        }
+    }
+
     fn spawn_abortable_timeout<F>(
         &self,
         duration: Duration,
@@ -79,6 +90,17 @@ where
         match self {
             Either::Left(l) => l.spawn_abortable_timeout(duration, f),
             Either::Right(r) => r.spawn_abortable_timeout(duration, f),
+        }
+    }
+
+    fn spawn_abortable_delay<F>(&self, duration: Duration, f: F) -> AbortableJoinHandle<F::Output>
+    where
+        F: Future + Send + 'static,
+        F::Output: Send + 'static,
+    {
+        match self {
+            Either::Left(l) => l.spawn_abortable_delay(duration, f),
+            Either::Right(r) => r.spawn_abortable_delay(duration, f),
         }
     }
 }

@@ -616,7 +616,6 @@ impl<'scope, E> Executor for ScopeExecutor<'scope, E>
 where
     E: Executor,
 {
-
     fn runtime_type(&self) -> Option<&'static str> {
         self.inner.runtime_type()
     }

@@ -292,6 +292,8 @@ where
 }
 
 /// Blocks the current thread until the provided future has completed.
+///
+/// Note that calling this function within an executor context may cause a deadlock.
 pub fn block_on<F: Future>(f: F) -> F::Output {
     EXECUTOR.block_on(f)
 }

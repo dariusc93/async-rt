@@ -2,7 +2,7 @@
 ///
 /// * On non-Wasm targets with the `tokio`, `smol`, or `compio` feature enabled, it uses
 ///   `TokioExecutor`, `SmolExecutor`, or `CompioExecutor`.
-/// * On non-Wasm targets with the `threadpool` feature enabled and the `tokio` or `compio`
+/// * On non-Wasm targets with the `threadpool` feature enabled and the `tokio`, `smol` or `compio`
 ///   feature disabled, it uses `ThreadPoolExecutor`.
 /// * On Wasm targets, it uses `WasmExecutor`, backed by
 ///   `wasm-bindgen-futures`.

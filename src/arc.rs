@@ -4,6 +4,7 @@ use crate::{
 };
 use std::future::Future;
 use std::sync::Arc;
+use std::time::Duration;
 
 impl<E> Executor for Arc<E>
 where
@@ -33,6 +34,14 @@ where
     {
         (**self).spawn_blocking(future)
     }
+
+    fn spawn_blocking_abortable<F, R>(&self, f: F) -> AbortableJoinHandle<R>
+    where
+        F: FnOnce() -> R + Send + 'static,
+        R: Send + 'static,
+    {
+        (**self).spawn_blocking_abortable(f)
+    }
 }
 
 impl<E> ExecutorTimeout for Arc<E>
@@ -51,6 +60,14 @@ where
         (**self).spawn_timeout(duration, f)
     }
 
+    fn spawn_delay<F>(&self, duration: Duration, f: F) -> JoinHandle<F::Output>
+    where
+        F: Future + Send + 'static,
+        F::Output: Send + 'static,
+    {
+        (**self).spawn_delay(duration, f)
+    }
+
     fn spawn_abortable_timeout<F>(
         &self,
         duration: std::time::Duration,
@@ -61,6 +78,14 @@ where
         F::Output: Send + 'static,
     {
         (**self).spawn_abortable_timeout(duration, f)
+    }
+
+    fn spawn_abortable_delay<F>(&self, duration: Duration, f: F) -> AbortableJoinHandle<F::Output>
+    where
+        F: Future + Send + 'static,
+        F::Output: Send + 'static,
+    {
+        (**self).spawn_abortable_delay(duration, f)
     }
 }
 

@@ -557,7 +557,7 @@ impl<T> From<JoinHandle<T>> for AbortableJoinHandle<T> {
 }
 
 impl<T> AbortableJoinHandle<T> {
-    /// Provide a empty [`AbortableJoinHandle`] with no associated task.
+    /// Provide an empty [`AbortableJoinHandle`] with no associated task.
     pub fn empty() -> Self {
         Self {
             handle: Arc::new(InnerHandle {
@@ -1185,6 +1185,8 @@ pub trait ExecutorTimeout: Executor {
 
 pub trait ExecutorBlockOn: Executor {
     /// Blocks the current thread until the provided future has completed.
+    ///
+    /// Note that calling this function within an executor context may cause a deadlock.
     fn block_on<F: Future>(&self, future: F) -> F::Output;
 }
 

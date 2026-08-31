@@ -51,6 +51,14 @@ where
         (**self).spawn_timeout(duration, f)
     }
 
+    fn spawn_delay<F>(&self, duration: Duration, f: F) -> JoinHandle<F::Output>
+    where
+        F: Future + Send + 'static,
+        F::Output: Send + 'static,
+    {
+        (**self).spawn_delay(duration, f)
+    }
+
     fn spawn_abortable_timeout<F>(
         &self,
         duration: Duration,
@@ -61,6 +69,14 @@ where
         F::Output: Send + 'static,
     {
         (**self).spawn_abortable_timeout(duration, f)
+    }
+
+    fn spawn_abortable_delay<F>(&self, duration: Duration, f: F) -> AbortableJoinHandle<F::Output>
+    where
+        F: Future + Send + 'static,
+        F::Output: Send + 'static,
+    {
+        (**self).spawn_abortable_delay(duration, f)
     }
 }
 

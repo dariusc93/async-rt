@@ -89,7 +89,9 @@ impl Executor {
                 clippy::unwrap_in_result
             )]
             {
-                let __async_rt_executor = #create_executor;
+                let __async_rt_executor = #runtime_crate::global::ConfiguredExecutor::new(
+                    #create_executor,
+                );
                 return #runtime_crate::ExecutorBlockOn::block_on(
                     &__async_rt_executor,
                     __async_rt_body,
@@ -163,7 +165,7 @@ macro_rules! entry_points {
         /// example, `#[async_rt::main(executor = "compio")]`.
         ///
         /// An explicit selection controls the runtime driving this function so it
-        /// does not replace `async-rt`'s compile-time `GlobalExecutor`.
+        /// does not replace `async-rt`'s compile-time `DefaultExecutor`.
         #[proc_macro_attribute]
         pub fn $main(arguments: TokenStream, item: TokenStream) -> TokenStream {
             expand(arguments, item, AttributeKind::Main, Executor::$executor)
@@ -176,7 +178,7 @@ macro_rules! entry_points {
         /// example, `#[async_rt::test(executor = "tokio")]`.
         ///
         /// An explicit selection controls the runtime driving this function so it
-        /// does not replace `async-rt`'s compile-time `GlobalExecutor`.
+        /// does not replace `async-rt`'s compile-time `DefaultExecutor`.
         #[proc_macro_attribute]
         pub fn $test(arguments: TokenStream, item: TokenStream) -> TokenStream {
             expand(arguments, item, AttributeKind::Test, Executor::$executor)

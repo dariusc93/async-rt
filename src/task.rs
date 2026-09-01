@@ -1,5 +1,5 @@
 use crate::error::TimeoutError;
-use crate::global::GlobalExecutor;
+use crate::global::{ConfiguredExecutor};
 use crate::{
     AbortableJoinHandle, CommunicationTask, Executor, ExecutorBlockOn, ExecutorBlocking,
     ExecutorTimeout, JoinHandle, Scope, ScopeExecutor, UnboundedCommunicationTask,
@@ -7,7 +7,7 @@ use crate::{
 use futures::channel::mpsc::{Receiver, UnboundedReceiver};
 use std::sync::LazyLock;
 
-static EXECUTOR: LazyLock<GlobalExecutor> = LazyLock::new(GlobalExecutor::default);
+static EXECUTOR: LazyLock<ConfiguredExecutor> = LazyLock::new(ConfiguredExecutor::default);
 
 /// Returns an optional runtime name of the executor.
 pub fn runtime_type() -> Option<&'static str> {
@@ -286,7 +286,7 @@ where
 /// tasks if the scope future itself is cancelled.
 pub fn executor_scope<F, T>(f: F) -> impl Future<Output = T>
 where
-    F: AsyncFnOnce(&ScopeExecutor<'static, GlobalExecutor>) -> T,
+    F: AsyncFnOnce(&ScopeExecutor<'static, ConfiguredExecutor>) -> T,
 {
     EXECUTOR.executor_scope(f)
 }

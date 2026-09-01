@@ -662,9 +662,9 @@ impl<E> ExecutorTimeout for ScopeExecutor<'_, E> where E: Executor {}
 /// ```no_run
 /// # async fn run() {
 /// use async_rt::Executor;
-/// use async_rt::global::GlobalExecutor;
+/// use async_rt::global::ConfiguredExecutor;
 ///
-/// let executor = GlobalExecutor::default();
+/// let executor: ConfiguredExecutor = ConfiguredExecutor::default();
 /// let total = executor
 ///     .executor_scope(async |s| {
 ///         let a = s.spawn(async { 1 + 2 });

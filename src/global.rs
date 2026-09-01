@@ -1,42 +1,75 @@
-/// Executor that selects an available runtime backend at compile time.
-///
-/// * On non-Wasm targets with the `tokio`, `smol`, or `compio` feature enabled, it uses
-///   `TokioExecutor`, `SmolExecutor`, or `CompioExecutor`.
-/// * On non-Wasm targets with the `threadpool` feature enabled and the `tokio`, `smol` or `compio`
-///   feature disabled, it uses `ThreadPoolExecutor`.
-/// * On Wasm targets, it uses `WasmExecutor`, backed by
-///   `wasm-bindgen-futures`.
-#[cfg(all(feature = "tokio", not(target_arch = "wasm32")))]
-pub type GlobalExecutor = crate::rt::tokio::TokioExecutor;
+mod executor;
 
-#[cfg(all(
-    feature = "compio",
-    not(any(feature = "tokio", feature = "smol", target_arch = "wasm32"))
-))]
-pub type GlobalExecutor = crate::rt::compio::CompioExecutor;
+use std::fmt::Debug;
+use async_rt::{ExecutorBlockOn, ExecutorTimeout, JoinHandle};
+use crate::{Executor, ExecutorBlocking};
+pub use crate::global::executor::DefaultExecutor;
 
-#[cfg(all(feature = "smol", not(any(feature = "tokio", target_arch = "wasm32"))))]
-pub type GlobalExecutor = crate::rt::smol::SmolExecutor;
+pub struct ConfiguredExecutor<E = DefaultExecutor> {
+    executor: E,
+}
 
-#[cfg(all(
-    feature = "threadpool",
-    not(any(
-        feature = "tokio",
-        feature = "smol",
-        feature = "compio",
-        target_arch = "wasm32"
-    ))
-))]
-pub type GlobalExecutor = crate::rt::threadpool::ThreadPoolExecutor;
+impl<E: Default> Default for ConfiguredExecutor<E> {
+    fn default() -> Self {
+        Self { executor: E::default() }
+    }
+}
 
-#[cfg(target_arch = "wasm32")]
-pub type GlobalExecutor = crate::rt::wasm::WasmExecutor;
+impl<E: Clone> Clone for ConfiguredExecutor<E> {
+    fn clone(&self) -> Self {
+        Self { executor: self.executor.clone() }
+    }
+}
 
-#[cfg(all(
-    not(feature = "threadpool"),
-    not(feature = "tokio"),
-    not(feature = "compio"),
-    not(feature = "smol"),
-    not(target_arch = "wasm32")
-))]
-pub type GlobalExecutor = crate::rt::dummy::DummyExecutor;
+impl<E: Debug> Debug for ConfiguredExecutor<E> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ConfiguredExecutor")
+            .field("executor", &self.executor)
+            .finish()
+    }
+}
+
+impl<E> ConfiguredExecutor<E> {
+    pub fn new(executor: E) -> Self {
+        Self { executor }
+    }
+
+    pub fn executor(&self) -> &E {
+        &self.executor
+    }
+
+    pub fn into_executor(self) -> E {
+        self.executor
+    }
+}
+
+impl<E: Executor> Executor for ConfiguredExecutor<E> {
+    fn runtime_type(&self) -> Option<&'static str> {
+        self.executor.runtime_type()
+    }
+
+    fn spawn<F>(&self, future: F) -> JoinHandle<F::Output>
+    where
+        F: Future + Send + 'static,
+        F::Output: Send + 'static
+    {
+        self.executor.spawn(future)
+    }
+}
+
+impl<E: ExecutorTimeout> ExecutorTimeout for ConfiguredExecutor<E> {}
+impl<E: ExecutorBlocking> ExecutorBlocking for ConfiguredExecutor<E> {
+    fn spawn_blocking<F, R>(&self, f: F) -> JoinHandle<R>
+    where
+        F: FnOnce() -> R + Send + 'static,
+        R: Send + 'static
+    {
+        self.executor.spawn_blocking(f)
+    }
+}
+
+impl<E: ExecutorBlockOn> ExecutorBlockOn for ConfiguredExecutor<E> {
+    fn block_on<F: Future>(&self, future: F) -> F::Output {
+        self.executor.block_on(future)
+    }
+}

@@ -96,10 +96,9 @@ impl Executor {
                 clippy::unwrap_in_result
             )]
             {
-                let __async_rt_executor_guard =
-                    #runtime_crate::task::set_executor(#builtin_executor);
-                let __async_rt_executor = #runtime_crate::global::ConfiguredExecutor::new(
+                let __async_rt_executor = #runtime_crate::global::ConfiguredExecutor::with_task_executor(
                     #create_executor,
+                    #builtin_executor,
                 );
                 return #runtime_crate::ExecutorBlockOn::block_on(
                     &__async_rt_executor,

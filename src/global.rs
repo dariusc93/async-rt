@@ -6,12 +6,14 @@ use std::fmt::Debug;
 
 pub struct ConfiguredExecutor<E = DefaultExecutor> {
     executor: E,
+    task_executor: Option<BuiltinExecutor>,
 }
 
 impl<E: Default> Default for ConfiguredExecutor<E> {
     fn default() -> Self {
         Self {
             executor: E::default(),
+            task_executor: None,
         }
     }
 }
@@ -20,6 +22,7 @@ impl<E: Clone> Clone for ConfiguredExecutor<E> {
     fn clone(&self) -> Self {
         Self {
             executor: self.executor.clone(),
+            task_executor: self.task_executor,
         }
     }
 }
@@ -28,17 +31,32 @@ impl<E: Debug> Debug for ConfiguredExecutor<E> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("ConfiguredExecutor")
             .field("executor", &self.executor)
+            .field("task_executor", &self.task_executor)
             .finish()
     }
 }
 
 impl<E> ConfiguredExecutor<E> {
     pub fn new(executor: E) -> Self {
-        Self { executor }
+        Self {
+            executor,
+            task_executor: None,
+        }
+    }
+
+    pub fn with_task_executor(executor: E, task_executor: BuiltinExecutor) -> Self {
+        Self {
+            executor,
+            task_executor: Some(task_executor),
+        }
     }
 
     pub fn executor(&self) -> &E {
         &self.executor
+    }
+
+    pub fn task_executor(&self) -> Option<BuiltinExecutor> {
+        self.task_executor
     }
 
     pub fn into_executor(self) -> E {
@@ -73,6 +91,7 @@ impl<E: ExecutorBlocking> ExecutorBlocking for ConfiguredExecutor<E> {
 
 impl<E: ExecutorBlockOn> ExecutorBlockOn for ConfiguredExecutor<E> {
     fn block_on<F: Future>(&self, future: F) -> F::Output {
+        let _guard = self.task_executor.map(crate::task::set_executor);
         self.executor.block_on(future)
     }
 }

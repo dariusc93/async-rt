@@ -30,8 +30,7 @@ fn executor() -> BuiltinExecutor {
     EXECUTOR.state.lock().executor
 }
 
-#[doc(hidden)]
-pub struct ExecutorGuard {
+pub(crate) struct ExecutorGuard {
     _private: (),
 }
 
@@ -45,8 +44,7 @@ impl Drop for ExecutorGuard {
     }
 }
 
-#[doc(hidden)]
-pub fn set_executor(executor: BuiltinExecutor) -> ExecutorGuard {
+pub(crate) fn set_executor(executor: BuiltinExecutor) -> ExecutorGuard {
     let mut state = EXECUTOR.state.lock();
     while state.active != 0 && state.executor != executor {
         EXECUTOR.available.wait(&mut state);

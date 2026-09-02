@@ -1,17 +1,66 @@
 use crate::error::TimeoutError;
-use crate::global::{ConfiguredExecutor};
+use crate::global::BuiltinExecutor;
 use crate::{
     AbortableJoinHandle, CommunicationTask, Executor, ExecutorBlockOn, ExecutorBlocking,
     ExecutorTimeout, JoinHandle, Scope, ScopeExecutor, UnboundedCommunicationTask,
 };
 use futures::channel::mpsc::{Receiver, UnboundedReceiver};
+use parking_lot::{Condvar, Mutex};
 use std::sync::LazyLock;
 
-static EXECUTOR: LazyLock<ConfiguredExecutor> = LazyLock::new(ConfiguredExecutor::default);
+struct ExecutorState {
+    executor: BuiltinExecutor,
+    active: usize,
+}
+
+struct ExecutorLock {
+    state: Mutex<ExecutorState>,
+    available: Condvar,
+}
+
+static EXECUTOR: LazyLock<ExecutorLock> = LazyLock::new(|| ExecutorLock {
+    state: Mutex::new(ExecutorState {
+        executor: BuiltinExecutor::default(),
+        active: 0,
+    }),
+    available: Condvar::new(),
+});
+
+fn executor() -> BuiltinExecutor {
+    EXECUTOR.state.lock().executor
+}
+
+#[doc(hidden)]
+pub struct ExecutorGuard {
+    _private: (),
+}
+
+impl Drop for ExecutorGuard {
+    fn drop(&mut self) {
+        let mut state = EXECUTOR.state.lock();
+        state.active -= 1;
+        if state.active == 0 {
+            EXECUTOR.available.notify_all();
+        }
+    }
+}
+
+#[doc(hidden)]
+pub fn set_executor(executor: BuiltinExecutor) -> ExecutorGuard {
+    let mut state = EXECUTOR.state.lock();
+    while state.active != 0 && state.executor != executor {
+        EXECUTOR.available.wait(&mut state);
+    }
+    if state.active == 0 {
+        state.executor = executor;
+    }
+    state.active += 1;
+    ExecutorGuard { _private: () }
+}
 
 /// Returns an optional runtime name of the executor.
 pub fn runtime_type() -> Option<&'static str> {
-    EXECUTOR.runtime_type()
+    executor().runtime_type()
 }
 
 /// Spawns a new asynchronous task in the background, returning a Future [`JoinHandle`] for it.
@@ -20,7 +69,7 @@ where
     F: Future + Send + 'static,
     F::Output: Send + 'static,
 {
-    EXECUTOR.spawn(future)
+    executor().spawn(future)
 }
 
 pub fn spawn_blocking<F, T>(future: F) -> JoinHandle<T>
@@ -28,7 +77,7 @@ where
     F: FnOnce() -> T + Send + 'static,
     T: Send + 'static,
 {
-    EXECUTOR.spawn_blocking(future)
+    executor().spawn_blocking(future)
 }
 
 /// Spawns a new asynchronous task in the background, returning an abortable handle that will cancel the task
@@ -41,7 +90,7 @@ where
     F: Future + Send + 'static,
     F::Output: Send + 'static,
 {
-    EXECUTOR.spawn_abortable(future)
+    executor().spawn_abortable(future)
 }
 
 /// Spawns a new asynchronous task that must complete within `duration`.
@@ -55,7 +104,7 @@ where
     F: Future + Send + 'static,
     F::Output: Send + 'static,
 {
-    EXECUTOR.spawn_timeout(duration, future)
+    executor().spawn_timeout(duration, future)
 }
 
 /// Spawns a task after waiting for a duration before the task is polled.
@@ -64,7 +113,7 @@ where
     F: Future + Send + 'static,
     F::Output: Send + 'static,
 {
-    EXECUTOR.spawn_delay(duration, future)
+    executor().spawn_delay(duration, future)
 }
 
 /// Spawns a new asynchronous task, returning an abortable handle, that must complete within
@@ -79,7 +128,7 @@ where
     F: Future + Send + 'static,
     F::Output: Send + 'static,
 {
-    EXECUTOR.spawn_abortable_timeout(duration, future)
+    executor().spawn_abortable_timeout(duration, future)
 }
 
 /// Spawns a task after waiting for a duration before the task is polled.
@@ -91,7 +140,7 @@ where
     F: Future + Send + 'static,
     F::Output: Send + 'static,
 {
-    EXECUTOR.spawn_abortable_delay(duration, future)
+    executor().spawn_abortable_delay(duration, future)
 }
 
 /// Spawns a new asynchronous task in the background without a handle.
@@ -101,7 +150,7 @@ where
     F: Future + Send + 'static,
     F::Output: Send + 'static,
 {
-    EXECUTOR.dispatch(future);
+    executor().dispatch(future);
 }
 
 /// Spawns a new asynchronous task that accepts messages to the task.
@@ -113,7 +162,7 @@ where
     Fut: Future<Output = ()> + Send + 'static,
     T: Send + 'static,
 {
-    EXECUTOR.spawn_coroutine(f)
+    executor().spawn_coroutine(f)
 }
 
 /// Spawns a new asynchronous task that accepts messages to the task with a set buffer.
@@ -125,7 +174,7 @@ where
     Fut: Future<Output = ()> + Send + 'static,
     T: Send + 'static,
 {
-    EXECUTOR.spawn_coroutine_with_buffer(buffer, f)
+    executor().spawn_coroutine_with_buffer(buffer, f)
 }
 
 /// Spawns a new asynchronous task that accepts unbounded messages to the task.
@@ -137,7 +186,7 @@ where
     Fut: Future<Output = ()> + Send + 'static,
     T: Send + 'static,
 {
-    EXECUTOR.spawn_unbounded_coroutine(f)
+    executor().spawn_unbounded_coroutine(f)
 }
 
 /// Spawns a new asynchronous task with provided context that accepts messages to the task.
@@ -154,7 +203,7 @@ where
     C: Send + 'static,
     T: Send + 'static,
 {
-    EXECUTOR.spawn_coroutine_with_context(context, f)
+    executor().spawn_coroutine_with_context(context, f)
 }
 
 /// Spawns a new asynchronous task with provided context that accepts messages to the task with a set buffer.
@@ -171,7 +220,7 @@ where
     C: Send + 'static,
     T: Send + 'static,
 {
-    EXECUTOR.spawn_coroutine_with_buffer_and_context(context, buffer, f)
+    executor().spawn_coroutine_with_buffer_and_context(context, buffer, f)
 }
 
 /// Spawns a new asynchronous task with provided context that accepts unbounded messages to the task.
@@ -187,7 +236,7 @@ where
     C: Send + 'static,
     T: Send + 'static,
 {
-    EXECUTOR.spawn_unbounded_coroutine_with_context(context, f)
+    executor().spawn_unbounded_coroutine_with_context(context, f)
 }
 
 /// Spawns a new asynchronous task that accepts messages to the task using [`channels`](futures::channel::mpsc).
@@ -198,7 +247,7 @@ where
     F: FnMut(Receiver<T>) -> Fut,
     Fut: Future<Output = ()> + Send + 'static,
 {
-    EXECUTOR.spawn_coroutine_with_receiver(f)
+    executor().spawn_coroutine_with_receiver(f)
 }
 
 /// Spawns a new asynchronous task with a set channel buffer that accepts messages to the task using [`channels`](futures::channel::mpsc).
@@ -212,7 +261,7 @@ where
     F: FnMut(Receiver<T>) -> Fut,
     Fut: Future<Output = ()> + Send + 'static,
 {
-    EXECUTOR.spawn_coroutine_with_receiver_and_buffer(buffer, f)
+    executor().spawn_coroutine_with_receiver_and_buffer(buffer, f)
 }
 
 /// Spawns a new asynchronous task with provided context that accepts messages to the task using [`channels`](futures::channel::mpsc).
@@ -226,7 +275,7 @@ where
     F: FnMut(C, Receiver<T>) -> Fut,
     Fut: Future<Output = ()> + Send + 'static,
 {
-    EXECUTOR.spawn_coroutine_with_receiver_and_context(context, f)
+    executor().spawn_coroutine_with_receiver_and_context(context, f)
 }
 
 /// Spawns a new asynchronous task with a set channel buffer and provided context that accepts messages to the task using [`channels`](futures::channel::mpsc).
@@ -241,7 +290,7 @@ where
     F: FnMut(C, Receiver<T>) -> Fut,
     Fut: Future<Output = ()> + Send + 'static,
 {
-    EXECUTOR.spawn_coroutine_with_receiver_buffer_and_context(context, buffer, f)
+    executor().spawn_coroutine_with_receiver_buffer_and_context(context, buffer, f)
 }
 
 /// Spawns a new asynchronous task that accepts messages to the task using [`channels`](futures::channel::mpsc).
@@ -252,7 +301,7 @@ where
     F: FnMut(UnboundedReceiver<T>) -> Fut,
     Fut: Future<Output = ()> + Send + 'static,
 {
-    EXECUTOR.spawn_unbounded_coroutine_with_receiver(f)
+    executor().spawn_unbounded_coroutine_with_receiver(f)
 }
 
 /// Spawns a new asynchronous task with provided context that accepts messages to the task using [`channels`](futures::channel::mpsc).
@@ -266,7 +315,7 @@ where
     F: FnMut(C, UnboundedReceiver<T>) -> Fut,
     Fut: Future<Output = ()> + Send + 'static,
 {
-    EXECUTOR.spawn_unbounded_coroutine_with_receiver_and_context(context, f)
+    executor().spawn_unbounded_coroutine_with_receiver_and_context(context, f)
 }
 
 /// Create a structured-concurrency scope in which tasks may be spawned
@@ -277,7 +326,7 @@ pub fn scope<'env, F, T>(f: F) -> impl Future<Output = T>
 where
     F: for<'scope> AsyncFnOnce(&'scope Scope<'scope, 'env>) -> T,
 {
-    EXECUTOR.scope(f)
+    crate::scoped::scope(f)
 }
 
 /// Run an async closure with a scoped [`Executor`] wrapper that
@@ -286,16 +335,19 @@ where
 /// tasks if the scope future itself is cancelled.
 pub fn executor_scope<F, T>(f: F) -> impl Future<Output = T>
 where
-    F: AsyncFnOnce(&ScopeExecutor<'static, ConfiguredExecutor>) -> T,
+    F: for<'scope> AsyncFnOnce(&ScopeExecutor<'scope, BuiltinExecutor>) -> T,
 {
-    EXECUTOR.executor_scope(f)
+    async move {
+        let executor = executor();
+        executor.executor_scope(f).await
+    }
 }
 
 /// Blocks the current thread until the provided future has completed.
 ///
 /// Note that calling this function within an executor context may cause a deadlock.
 pub fn block_on<F: Future>(f: F) -> F::Output {
-    EXECUTOR.block_on(f)
+    executor().block_on(f)
 }
 
 #[cfg(not(all(feature = "tokio", not(target_arch = "wasm32"))))]

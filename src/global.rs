@@ -1,9 +1,8 @@
 mod executor;
 
+pub use crate::global::executor::{BuiltinExecutor, DefaultExecutor};
+use crate::{Executor, ExecutorBlockOn, ExecutorBlocking, ExecutorTimeout, JoinHandle};
 use std::fmt::Debug;
-use async_rt::{ExecutorBlockOn, ExecutorTimeout, JoinHandle};
-use crate::{Executor, ExecutorBlocking};
-pub use crate::global::executor::DefaultExecutor;
 
 pub struct ConfiguredExecutor<E = DefaultExecutor> {
     executor: E,
@@ -11,13 +10,17 @@ pub struct ConfiguredExecutor<E = DefaultExecutor> {
 
 impl<E: Default> Default for ConfiguredExecutor<E> {
     fn default() -> Self {
-        Self { executor: E::default() }
+        Self {
+            executor: E::default(),
+        }
     }
 }
 
 impl<E: Clone> Clone for ConfiguredExecutor<E> {
     fn clone(&self) -> Self {
-        Self { executor: self.executor.clone() }
+        Self {
+            executor: self.executor.clone(),
+        }
     }
 }
 
@@ -51,7 +54,7 @@ impl<E: Executor> Executor for ConfiguredExecutor<E> {
     fn spawn<F>(&self, future: F) -> JoinHandle<F::Output>
     where
         F: Future + Send + 'static,
-        F::Output: Send + 'static
+        F::Output: Send + 'static,
     {
         self.executor.spawn(future)
     }
@@ -62,7 +65,7 @@ impl<E: ExecutorBlocking> ExecutorBlocking for ConfiguredExecutor<E> {
     fn spawn_blocking<F, R>(&self, f: F) -> JoinHandle<R>
     where
         F: FnOnce() -> R + Send + 'static,
-        R: Send + 'static
+        R: Send + 'static,
     {
         self.executor.spawn_blocking(f)
     }

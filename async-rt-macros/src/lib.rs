@@ -58,6 +58,13 @@ impl Executor {
         runtime_crate: &TokenStream2,
         body: &syn::Block,
     ) -> TokenStream2 {
+        let builtin_executor = match self {
+            Self::Tokio => quote!(#runtime_crate::global::BuiltinExecutor::Tokio),
+            Self::Smol => quote!(#runtime_crate::global::BuiltinExecutor::Smol),
+            Self::Compio => quote!(#runtime_crate::global::BuiltinExecutor::Compio),
+            Self::ThreadPool => quote!(#runtime_crate::global::BuiltinExecutor::ThreadPool),
+            Self::Global => unreachable!("the global executor must be resolved before expansion"),
+        };
         let create_executor = match self {
             Self::Tokio if kind.is_test() => quote! {
                 #runtime_crate::rt::tokio::TokioRuntimeExecutor::with_single_thread()
@@ -89,6 +96,8 @@ impl Executor {
                 clippy::unwrap_in_result
             )]
             {
+                let __async_rt_executor_guard =
+                    #runtime_crate::task::set_executor(#builtin_executor);
                 let __async_rt_executor = #runtime_crate::global::ConfiguredExecutor::new(
                     #create_executor,
                 );
@@ -164,8 +173,8 @@ macro_rules! entry_points {
         /// this macro. A built-in executor can be selected explicitly with, for
         /// example, `#[async_rt::main(executor = "compio")]`.
         ///
-        /// An explicit selection controls the runtime driving this function so it
-        /// does not replace `async-rt`'s compile-time `DefaultExecutor`.
+        /// An explicit selection controls the runtime driving this function and the
+        /// executor used by `async_rt::task`.
         #[proc_macro_attribute]
         pub fn $main(arguments: TokenStream, item: TokenStream) -> TokenStream {
             expand(arguments, item, AttributeKind::Main, Executor::$executor)
@@ -177,8 +186,9 @@ macro_rules! entry_points {
         /// this macro. A built-in executor can be selected explicitly with, for
         /// example, `#[async_rt::test(executor = "tokio")]`.
         ///
-        /// An explicit selection controls the runtime driving this function so it
-        /// does not replace `async-rt`'s compile-time `DefaultExecutor`.
+        /// An explicit selection controls the runtime driving this function and the
+        /// executor used by `async_rt::task`.
+        /// Tests using different executors in the same binary run one at a time.
         #[proc_macro_attribute]
         pub fn $test(arguments: TokenStream, item: TokenStream) -> TokenStream {
             expand(arguments, item, AttributeKind::Test, Executor::$executor)

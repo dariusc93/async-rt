@@ -30,6 +30,7 @@ use futures::{FutureExt, StreamExt, TryFutureExt};
 use futures_timeout::Timeout;
 use parking_lot::Mutex;
 use pollable_map::optional::Optional;
+use std::panic::AssertUnwindSafe;
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Weak};
 
@@ -74,7 +75,10 @@ impl<'scope, 'env> Scope<'scope, 'env> {
     {
         let (tx, rx) = oneshot::channel();
         let wrapped: BoxFuture<'scope, ()> = async move {
-            let output = fut.await;
+            let output = AssertUnwindSafe(fut)
+                .catch_unwind()
+                .await
+                .map_err(|_| JoinError::Panicked);
             // If the receiver was dropped, the caller doesn't care about
             // the output so we will discard it.
             let _ = tx.send(output);
@@ -439,15 +443,16 @@ fn drive_scope<'scope>(
 
 /// A handle to a task spawned on a [`Scope`].
 ///
-/// Awaiting the handle yields the task's output. If the scope is dropped
-/// before the task finishes (for example, because the scope future was
-/// cancelled), awaiting yields [`JoinError::Cancelled`].
+/// Awaiting the handle yields the task's output. A panicking task yields
+/// [`JoinError::Panicked`]. If the scope is dropped before the task finishes
+/// (for example, because the scope future was cancelled), awaiting yields
+/// [`JoinError::Cancelled`].
 ///
 /// The handle does not borrow the spawned future itself. It can therefore
-/// outlive the scope when its output type is also `'static`; borrowed output
+/// outlive the scope when its output type is also `'static`, which borrowed output
 /// types retain their normal lifetime restrictions.
 pub struct ScopedJoinHandle<T> {
-    rx: oneshot::Receiver<T>,
+    rx: oneshot::Receiver<Result<T, JoinError>>,
 }
 
 impl<T> Future for ScopedJoinHandle<T> {
@@ -455,7 +460,7 @@ impl<T> Future for ScopedJoinHandle<T> {
 
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         match Pin::new(&mut self.rx).poll(cx) {
-            Poll::Ready(Ok(v)) => Poll::Ready(Ok(v)),
+            Poll::Ready(Ok(result)) => Poll::Ready(result),
             Poll::Ready(Err(_)) => Poll::Ready(Err(JoinError::Cancelled)),
             Poll::Pending => Poll::Pending,
         }
@@ -743,6 +748,34 @@ mod tests {
         })
         .await;
         assert_eq!(out, "hello");
+    }
+
+    #[cfg(panic = "unwind")]
+    #[tokio::test]
+    async fn join_handle_reports_task_panic() {
+        let result = scope(async |s: &Scope<'_, '_>| {
+            s.spawn(async { panic!("expected scoped task panic") })
+                .await
+        })
+        .await;
+
+        assert!(matches!(result, Err(JoinError::Panicked)));
+    }
+
+    #[cfg(panic = "unwind")]
+    #[tokio::test]
+    async fn unawaited_task_panic_does_not_stop_other_tasks() {
+        let completed = AtomicBool::new(false);
+
+        scope(async |s: &Scope<'_, '_>| {
+            s.spawn(async { panic!("expected unawaited scoped task panic") });
+            s.spawn(async {
+                completed.store(true, std::sync::atomic::Ordering::SeqCst);
+            });
+        })
+        .await;
+
+        assert!(completed.load(std::sync::atomic::Ordering::SeqCst));
     }
 
     #[tokio::test]

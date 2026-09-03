@@ -18,14 +18,12 @@ async fn main() {
 }
 ```
 
-The default executor follows the same feature precedence as `GlobalExecutor`. A runtime can also be selected explicitly
+A runtime can also be selected explicitly:
 
 ```rust,no_run
 #[async_rt::main(executor = "compio")]
 async fn main() {
-    use async_rt::Executor;
-
-    let task = async_rt::rt::compio::CompioExecutor.spawn(async { 42 });
+    let task = async_rt::task::spawn(async { 42 });
     assert_eq!(task.await.unwrap(), 42);
 }
 ```

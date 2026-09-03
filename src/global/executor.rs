@@ -43,6 +43,7 @@ pub type DefaultExecutor = crate::rt::wasm::WasmExecutor;
 ))]
 pub type DefaultExecutor = crate::rt::dummy::DummyExecutor;
 
+/// Built-in executor types.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum BuiltinExecutor {
     #[cfg(all(feature = "tokio", not(target_arch = "wasm32")))]

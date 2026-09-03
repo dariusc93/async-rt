@@ -41,7 +41,7 @@ impl ExecutorTimeout for TokioExecutor {}
 
 impl ExecutorBlockOn for TokioExecutor {
     /// Blocks the current thread until the provided future has completed.
-    /// Note that this requires the current thread to be a tokio runtime thread.
+    /// Note that this should not run inside a tokio runtime context.
     fn block_on<F: Future>(&self, f: F) -> F::Output {
         let handle = Handle::current();
         handle.block_on(f)

@@ -51,7 +51,7 @@ impl From<compio::runtime::JoinError> for JoinError {
 ///
 /// Returned as the inner error of a timeout task's output, for example from
 /// [`ExecutorTimeout::spawn_timeout`](crate::ExecutorTimeout::spawn_timeout). A timeout does not
-/// produce [`JoinError::Aborted`] or [`JoinError::Cancelled`]; those come from aborting or dropping
+/// produce [`JoinError::Aborted`] or [`JoinError::Cancelled`] as those come from aborting or dropping
 /// the task's handle.
 #[derive(Debug, Error)]
 #[error("The task timed out")]

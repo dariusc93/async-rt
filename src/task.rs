@@ -46,7 +46,7 @@ impl Drop for ExecutorGuard {
 
 pub(crate) fn set_executor(executor: BuiltinExecutor) -> ExecutorGuard {
     let mut state = EXECUTOR.state.lock();
-    while state.active != 0 && state.executor != executor {
+    while state.active != 0 && (state.executor != executor || executor.is_exclusive()) {
         EXECUTOR.available.wait(&mut state);
     }
     if state.active == 0 {

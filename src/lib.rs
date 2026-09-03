@@ -30,12 +30,26 @@ pub use async_rt_macros::{main_compio as main, test_compio as test};
         feature = "tokio",
         feature = "smol",
         feature = "compio",
-        feature = "threadpool"
+        feature = "threadpool",
+        feature = "lite"
     )),
     not(target_arch = "wasm32")
 ))]
 #[doc(inline)]
 pub use async_rt_macros::{main_fail as main, test_fail as test};
+#[cfg(all(
+    feature = "macros",
+    feature = "lite",
+    not(any(
+        feature = "tokio",
+        feature = "smol",
+        feature = "compio",
+        feature = "threadpool",
+        target_arch = "wasm32"
+    ))
+))]
+#[doc(inline)]
+pub use async_rt_macros::{main_lite as main, test_lite as test};
 #[cfg(all(
     feature = "macros",
     feature = "smol",

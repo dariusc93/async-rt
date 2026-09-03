@@ -28,6 +28,7 @@ enum Executor {
     Smol,
     Compio,
     ThreadPool,
+    Lite,
 }
 
 impl Executor {
@@ -38,17 +39,11 @@ impl Executor {
             "smol" => Ok(Self::Smol),
             "compio" => Ok(Self::Compio),
             "threadpool" | "thread_pool" => Ok(Self::ThreadPool),
+            "lite" => Ok(Self::Lite),
             _ => Err(Error::new(
                 span,
-                "unknown executor. expected `global`, `tokio`, `smol`, `compio`, or `threadpool`",
+                "unknown executor. expected `global`, `tokio`, `smol`, `compio`, `threadpool`, or `lite`",
             )),
-        }
-    }
-
-    fn resolve(self, default: Self) -> Self {
-        match self {
-            Self::Global => default,
-            executor => executor,
         }
     }
 
@@ -63,6 +58,7 @@ impl Executor {
             Self::Smol => quote!(#runtime_crate::global::BuiltinExecutor::Smol),
             Self::Compio => quote!(#runtime_crate::global::BuiltinExecutor::Compio),
             Self::ThreadPool => quote!(#runtime_crate::global::BuiltinExecutor::ThreadPool),
+            Self::Lite => quote!(#runtime_crate::global::BuiltinExecutor::Lite),
             Self::Global => unreachable!("the global executor must be resolved before expansion"),
         };
         let create_executor = match self {
@@ -83,6 +79,9 @@ impl Executor {
             },
             Self::ThreadPool => quote! {
                 #runtime_crate::rt::threadpool::ThreadPoolExecutor
+            },
+            Self::Lite => quote! {
+                #runtime_crate::rt::lite::LiteExecutor
             },
             Self::Global => unreachable!("the global executor must be resolved before expansion"),
         };
@@ -243,14 +242,15 @@ entry_points!(main_tokio, test_tokio, Tokio);
 entry_points!(main_smol, test_smol, Smol);
 entry_points!(main_compio, test_compio, Compio);
 entry_points!(main_threadpool, test_threadpool, ThreadPool);
+entry_points!(main_lite, test_lite, Lite);
 
-/// Runs an async function with a custom driver when no built-in runtime is enabled.
+/// Runs an async function when no default runtime is enabled.
 #[proc_macro_attribute]
 pub fn main_fail(arguments: TokenStream, item: TokenStream) -> TokenStream {
     expand(arguments, item, AttributeKind::Main, None)
 }
 
-/// Runs an async test with a custom driver when no built-in runtime is enabled.
+/// Runs an async test when no default runtime is enabled.
 #[proc_macro_attribute]
 pub fn test_fail(arguments: TokenStream, item: TokenStream) -> TokenStream {
     expand(arguments, item, AttributeKind::Test, None)
@@ -321,16 +321,16 @@ fn expand_inner(
     let drive = match arguments.driver {
         Some(driver) => drive_custom(&runtime_crate, &body, driver),
         None => {
-            let default_executor = default_executor.ok_or_else(|| {
-                Error::new(
-                    Span::call_site(),
-                    "async-rt's `main` and `test` macros require a built-in runtime feature or a custom `driver`",
-                )
-            })?;
-            arguments
-                .executor
-                .resolve(default_executor)
-                .drive(kind, &runtime_crate, &body)
+            let executor = match arguments.executor {
+                Executor::Global => default_executor.ok_or_else(|| {
+                    Error::new(
+                        Span::call_site(),
+                        "async-rt's `main` and `test` macros require a default runtime feature, an explicit executor, or a custom `driver`",
+                    )
+                })?,
+                executor => executor,
+            };
+            executor.drive(kind, &runtime_crate, &body)
         }
     };
 
@@ -385,6 +385,12 @@ mod tests {
         assert!(matches!(
             Arguments::parse(quote!(executor = tokio)).unwrap().executor,
             Executor::Tokio
+        ));
+        assert!(matches!(
+            Arguments::parse(quote!(executor = "lite"))
+                .unwrap()
+                .executor,
+            Executor::Lite
         ));
     }
 

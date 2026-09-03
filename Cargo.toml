@@ -18,12 +18,13 @@ A small library designed to utilize async executors through an common API while 
 members = ["async-rt-macros", "examples/default-runtime"]
 
 [features]
-default = ["tokio", "macros"]
+default = ["tokio", "lite", "macros"]
 macros = ["dep:async-rt-macros"]
 threadpool = ["futures/thread-pool"]
 tokio = ["dep:tokio"]
 compio = ["dep:compio"]
 smol = ["dep:async-task", "dep:smol"]
+lite = []
 
 [dependencies]
 async-rt-macros = { version = "0.1.0", path = "async-rt-macros", optional = true }

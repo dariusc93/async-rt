@@ -28,6 +28,16 @@ async fn main() {
 }
 ```
 
+The `lite` feature provides a built-in lightweight executor and is enabled by default:
+
+```rust,no_run
+#[async_rt::main(executor = "lite")]
+async fn main() {
+    let task = async_rt::task::spawn(async { 42 });
+    assert_eq!(task.await.unwrap(), 42);
+}
+```
+
 A custom executor can drive the annotated future through the `driver` option:
 
 ```rust,no_run
@@ -40,9 +50,9 @@ async fn main() {
 The driver expression must produce an executor that implements `ExecutorBlockOn`. A custom
 driver does not change the built-in executor used by `async_rt::task`.
 
-Supported selections are `"global"`, `"tokio"`, `"smol"`, `"compio"`, and `"threadpool"`.
+Supported selections are `"global"`, `"tokio"`, `"smol"`, `"compio"`, `"threadpool"`, and `"lite"`.
 Explicit selection controls the runtime driving the annotated function as it does not
-change the compile-time `GlobalExecutor`. This distinction matters when more than one
+change the compile-time `DefaultExecutor`. This distinction matters when more than one
 executor feature is enabled. Note that these attributes do not currently support 
 wasm32 targets.
 

@@ -28,6 +28,18 @@ async fn main() {
 }
 ```
 
+A custom executor can drive the annotated future through the `driver` option:
+
+```rust,no_run
+#[async_rt::main(driver = application::executor())]
+async fn main() {
+    run_application().await;
+}
+```
+
+The driver expression must produce an executor that implements `ExecutorBlockOn`. A custom
+driver does not change the built-in executor used by `async_rt::task`.
+
 Supported selections are `"global"`, `"tokio"`, `"smol"`, `"compio"`, and `"threadpool"`.
 Explicit selection controls the runtime driving the annotated function as it does not
 change the compile-time `GlobalExecutor`. This distinction matters when more than one

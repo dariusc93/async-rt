@@ -1,6 +1,56 @@
 #![cfg(all(feature = "macros", not(target_arch = "wasm32")))]
 
-use async_rt::{Executor, JoinError};
+#[cfg(any(
+    feature = "tokio",
+    feature = "smol",
+    feature = "compio",
+    feature = "threadpool"
+))]
+use async_rt::JoinError;
+use async_rt::{Executor, ExecutorBlockOn, JoinHandle};
+use std::future::Future;
+
+#[derive(Clone, Copy)]
+struct CustomDriver;
+
+impl Executor for CustomDriver {
+    fn runtime_type(&self) -> Option<&'static str> {
+        Some("custom")
+    }
+
+    fn spawn<F>(&self, _: F) -> JoinHandle<F::Output>
+    where
+        F: Future + Send + 'static,
+        F::Output: Send + 'static,
+    {
+        JoinHandle::empty()
+    }
+}
+
+impl ExecutorBlockOn for CustomDriver {
+    fn block_on<F: Future>(&self, future: F) -> F::Output {
+        futures::executor::block_on(future)
+    }
+}
+
+fn custom_driver() -> CustomDriver {
+    CustomDriver
+}
+
+#[async_rt::main(driver = custom_driver())]
+async fn custom_driver_main() -> usize {
+    42
+}
+
+#[test]
+fn main_accepts_custom_driver() {
+    assert_eq!(custom_driver_main(), 42);
+}
+
+#[async_rt::test(driver = CustomDriver)]
+async fn test_accepts_custom_driver() {
+    assert_eq!(CustomDriver.runtime_type(), Some("custom"));
+}
 
 #[cfg(any(
     feature = "tokio",

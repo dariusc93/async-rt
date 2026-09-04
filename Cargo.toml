@@ -25,6 +25,14 @@ tokio = ["dep:tokio"]
 compio = ["dep:compio"]
 smol = ["dep:async-task", "dep:smol"]
 lite = []
+fs = [
+    "tokio?/fs",
+    "tokio?/io-util",
+    "compio?/fs",
+    "dep:js-sys",
+    "dep:wasm-bindgen",
+    "dep:web-sys",
+]
 
 [dependencies]
 async-rt-macros = { version = "0.1.0", path = "async-rt-macros", optional = true }
@@ -43,6 +51,19 @@ smol = { version = "2.0.2", optional = true }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 wasm-bindgen-futures = "0.4.50"
+js-sys = { version = "0.3.77", optional = true }
+wasm-bindgen = { version = "0.2.100", optional = true }
+web-sys = { version = "0.3.77", optional = true, features = [
+    "File",
+    "FileSystemCreateWritableOptions",
+    "FileSystemDirectoryHandle",
+    "FileSystemFileHandle",
+    "FileSystemGetDirectoryOptions",
+    "FileSystemGetFileOptions",
+    "FileSystemRemoveOptions",
+    "FileSystemWritableFileStream",
+    "StorageManager",
+] }
 
 [dev-dependencies]
 futures-timer = "3.0.3"

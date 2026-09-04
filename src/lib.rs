@@ -1,5 +1,7 @@
 pub mod arc;
 pub mod error;
+#[cfg(feature = "fs")]
+pub mod fs;
 pub mod global;
 pub mod rt;
 pub mod task;

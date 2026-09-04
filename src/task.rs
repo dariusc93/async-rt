@@ -26,7 +26,7 @@ static EXECUTOR: LazyLock<ExecutorLock> = LazyLock::new(|| ExecutorLock {
     available: Condvar::new(),
 });
 
-fn executor() -> BuiltinExecutor {
+pub(crate) fn executor() -> BuiltinExecutor {
     EXECUTOR.state.lock().executor
 }
 

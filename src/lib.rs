@@ -3,6 +3,12 @@ pub mod error;
 #[cfg(feature = "fs")]
 pub mod fs;
 pub mod global;
+#[cfg(all(
+    feature = "net",
+    not(target_arch = "wasm32"),
+    any(feature = "tokio", feature = "smol", feature = "compio")
+))]
+pub mod net;
 pub mod rt;
 pub mod task;
 pub mod tracker;

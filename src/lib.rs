@@ -1210,6 +1210,17 @@ pub trait ExecutorBlockOn: Executor {
     ///
     /// Note that calling this function within an executor context may cause a deadlock.
     fn block_on<F: Future>(&self, future: F) -> F::Output;
+
+    /// Blocks the current thread until the provided future has completed or the timeout is reached.
+    /// 
+    /// Note that calling this function within an executor context may cause a deadlock.
+    fn block_on_timeout<F: Future>(
+        &self,
+        duration: std::time::Duration,
+        future: F,
+    ) -> Result<F::Output, TimeoutError> {
+        self.block_on(Timeout::from_future(future, duration).map_err(Into::into))
+    }
 }
 
 #[cfg(test)]

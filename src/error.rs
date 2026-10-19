@@ -56,3 +56,9 @@ impl From<compio::runtime::JoinError> for JoinError {
 #[derive(Debug, Error)]
 #[error("The task timed out")]
 pub struct TimeoutError;
+
+impl From<futures_timeout::TimeoutError> for TimeoutError {
+    fn from(_: futures_timeout::TimeoutError) -> Self {
+        TimeoutError
+    }
+}

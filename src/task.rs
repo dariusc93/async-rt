@@ -348,6 +348,13 @@ pub fn block_on<F: Future>(f: F) -> F::Output {
     executor().block_on(f)
 }
 
+/// Blocks the current thread until the provided future has completed or the timeout is reached.
+///
+/// Note that calling this function within an executor context may cause a deadlock.
+pub fn block_on_timeout<F: Future>(duration: core::time::Duration, f: F) -> Result<F::Output, TimeoutError> {
+    executor().block_on_timeout(duration, f)
+}
+
 #[cfg(not(all(feature = "tokio", not(target_arch = "wasm32"))))]
 #[derive(Default)]
 struct Yield {

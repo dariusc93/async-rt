@@ -355,6 +355,14 @@ pub fn block_on_timeout<F: Future>(duration: core::time::Duration, f: F) -> Resu
     executor().block_on_timeout(duration, f)
 }
 
+/// Blocks the current thread until the provided future has completed, delaying the start for
+/// the specific duration.
+///
+/// Note that calling this function within an executor context may cause a deadlock.
+pub fn block_on_delay<F: Future>(duration: core::time::Duration, f: F) -> F::Output {
+    executor().block_on_delay(duration, f)
+}
+
 #[cfg(not(all(feature = "tokio", not(target_arch = "wasm32"))))]
 #[derive(Default)]
 struct Yield {

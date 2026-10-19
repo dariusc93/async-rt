@@ -1212,7 +1212,7 @@ pub trait ExecutorBlockOn: Executor {
     fn block_on<F: Future>(&self, future: F) -> F::Output;
 
     /// Blocks the current thread until the provided future has completed or the timeout is reached.
-    /// 
+    ///
     /// Note that calling this function within an executor context may cause a deadlock.
     fn block_on_timeout<F: Future>(
         &self,
@@ -1220,6 +1220,17 @@ pub trait ExecutorBlockOn: Executor {
         future: F,
     ) -> Result<F::Output, TimeoutError> {
         self.block_on(Timeout::from_future(future, duration).map_err(Into::into))
+    }
+
+    /// Blocks the current thread until the provided future has completed, delaying the start for
+    /// the specific duration.
+    /// 
+    /// Note that calling this function within an executor context may cause a deadlock.
+    fn block_on_delay<F: Future>(&self, duration: std::time::Duration, f: F) -> F::Output {
+        self.block_on(async move {
+            let _ = Timeout::from_future(futures::future::pending::<()>(), duration).await;
+            f.await
+        })
     }
 }
 

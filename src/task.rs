@@ -5,58 +5,101 @@ use crate::{
     ExecutorTimeout, JoinHandle, Scope, ScopeExecutor, UnboundedCommunicationTask,
 };
 use futures::channel::mpsc::{Receiver, UnboundedReceiver};
-use parking_lot::{Condvar, Mutex};
+use parking_lot::{Mutex, MutexGuard};
+use std::cell::Cell;
+use std::marker::PhantomData;
+use std::pin::Pin;
+use std::rc::Rc;
 use std::sync::LazyLock;
+use std::task::{Context, Poll};
 
-struct ExecutorState {
-    executor: BuiltinExecutor,
-    active: usize,
+thread_local! {
+    static CURRENT_EXECUTOR: Cell<Option<BuiltinExecutor>> = const { Cell::new(None) };
 }
 
-struct ExecutorLock {
-    state: Mutex<ExecutorState>,
-    available: Condvar,
-}
-
-static EXECUTOR: LazyLock<ExecutorLock> = LazyLock::new(|| ExecutorLock {
-    state: Mutex::new(ExecutorState {
-        executor: BuiltinExecutor::default(),
-        active: 0,
-    }),
-    available: Condvar::new(),
-});
+static LITE_ENTRY_LOCK: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
 
 pub(crate) fn executor() -> BuiltinExecutor {
-    EXECUTOR.state.lock().executor
+    CURRENT_EXECUTOR.with(|current| current.get().unwrap_or_default())
+}
+
+struct ExecutorContextGuard {
+    previous: Option<BuiltinExecutor>,
+    _not_send: PhantomData<Rc<()>>,
+}
+
+impl Drop for ExecutorContextGuard {
+    fn drop(&mut self) {
+        CURRENT_EXECUTOR.set(self.previous);
+    }
+}
+
+fn enter_executor(executor: BuiltinExecutor) -> ExecutorContextGuard {
+    let previous = CURRENT_EXECUTOR.replace(Some(executor));
+    ExecutorContextGuard {
+        previous,
+        _not_send: PhantomData,
+    }
+}
+
+pub(crate) fn with_executor<T>(executor: BuiltinExecutor, f: impl FnOnce() -> T) -> T {
+    let _guard = enter_executor(executor);
+    f()
 }
 
 pub(crate) struct ExecutorGuard {
-    _private: (),
+    _context: ExecutorContextGuard,
+    _exclusive: Option<MutexGuard<'static, ()>>,
 }
 
-impl Drop for ExecutorGuard {
-    fn drop(&mut self) {
-        let mut state = EXECUTOR.state.lock();
-        state.active -= 1;
-        if state.active == 0 {
-            EXECUTOR.available.notify_all();
+pub(crate) fn set_executor(executor: BuiltinExecutor) -> ExecutorGuard {
+    let exclusive = if executor.is_exclusive() {
+        Some(LITE_ENTRY_LOCK.lock())
+    } else {
+        None
+    };
+    ExecutorGuard {
+        _context: enter_executor(executor),
+        _exclusive: exclusive,
+    }
+}
+
+pin_project_lite::pin_project! {
+    pub(crate) struct WithExecutor<F> {
+        executor: BuiltinExecutor,
+        #[pin]
+        future: Option<F>,
+    }
+
+    impl<F> PinnedDrop for WithExecutor<F> {
+        fn drop(this: Pin<&mut Self>) {
+            let mut this = this.project();
+            with_executor(*this.executor, || this.future.set(None));
         }
     }
 }
 
-pub(crate) fn set_executor(executor: BuiltinExecutor) -> ExecutorGuard {
-    let mut state = EXECUTOR.state.lock();
-    while state.active != 0 && (state.executor != executor || executor.is_exclusive()) {
-        EXECUTOR.available.wait(&mut state);
+impl<F> WithExecutor<F> {
+    pub(crate) fn new(executor: BuiltinExecutor, future: F) -> Self {
+        Self {
+            executor,
+            future: Some(future),
+        }
     }
-    if state.active == 0 {
-        state.executor = executor;
-    }
-    state.active += 1;
-    ExecutorGuard { _private: () }
 }
 
-/// Returns an optional runtime name of the executor.
+impl<F: Future> Future for WithExecutor<F> {
+    type Output = F::Output;
+
+    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        let this = self.project();
+        with_executor(*this.executor, || {
+            this.future.as_pin_mut().unwrap().poll(cx)
+        })
+    }
+}
+
+/// Returns the runtime name selected for the current task, if available.
 pub fn runtime_type() -> Option<&'static str> {
     executor().runtime_type()
 }

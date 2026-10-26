@@ -74,7 +74,9 @@ impl<E: Executor> Executor for ConfiguredExecutor<E> {
         F: Future + Send + 'static,
         F::Output: Send + 'static,
     {
-        self.executor.spawn(future)
+        let executor = self.task_executor.unwrap_or_else(crate::task::executor);
+        self.executor
+            .spawn(crate::task::WithExecutor::new(executor, future))
     }
 }
 
@@ -85,13 +87,17 @@ impl<E: ExecutorBlocking> ExecutorBlocking for ConfiguredExecutor<E> {
         F: FnOnce() -> R + Send + 'static,
         R: Send + 'static,
     {
-        self.executor.spawn_blocking(f)
+        let executor = self.task_executor.unwrap_or_else(crate::task::executor);
+        self.executor
+            .spawn_blocking(move || crate::task::with_executor(executor, f))
     }
 }
 
 impl<E: ExecutorBlockOn> ExecutorBlockOn for ConfiguredExecutor<E> {
     fn block_on<F: Future>(&self, future: F) -> F::Output {
         let _guard = self.task_executor.map(crate::task::set_executor);
-        self.executor.block_on(future)
+        let executor = crate::task::executor();
+        self.executor
+            .block_on(crate::task::WithExecutor::new(executor, future))
     }
 }

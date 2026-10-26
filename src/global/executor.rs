@@ -164,6 +164,7 @@ impl Executor for BuiltinExecutor {
         F: Future + Send + 'static,
         F::Output: Send + 'static,
     {
+        let future = crate::task::WithExecutor::new(*self, future);
         match self {
             #[cfg(all(feature = "tokio", not(target_arch = "wasm32")))]
             BuiltinExecutor::Tokio => Executor::spawn(&crate::rt::tokio::TokioExecutor, future),
@@ -190,6 +191,8 @@ impl ExecutorBlocking for BuiltinExecutor {
         F: FnOnce() -> R + Send + 'static,
         R: Send + 'static,
     {
+        let executor = *self;
+        let f = move || crate::task::with_executor(executor, f);
         match self {
             #[cfg(all(feature = "tokio", not(target_arch = "wasm32")))]
             BuiltinExecutor::Tokio => {
@@ -226,6 +229,7 @@ impl ExecutorTimeout for BuiltinExecutor {}
 
 impl ExecutorBlockOn for BuiltinExecutor {
     fn block_on<F: Future>(&self, future: F) -> F::Output {
+        let future = crate::task::WithExecutor::new(*self, future);
         match self {
             #[cfg(all(feature = "tokio", not(target_arch = "wasm32")))]
             BuiltinExecutor::Tokio => {
